@@ -94,6 +94,31 @@ function extractChatbotConversationId(citaId: string): string | null {
   return raw.split(':')[0] || null;
 }
 
+function extractChatbotAppointmentRef(citaId: string): {
+  updatedAt?: string;
+  day?: string;
+  hour24?: number;
+  mode?: 'presencial' | 'virtual';
+} {
+  if (!citaId.startsWith('chatbot-')) return {};
+  const raw = citaId.slice('chatbot-'.length);
+  const parts = raw.split(':');
+  if (parts.length < 5) return {};
+
+  const updatedAt = `${parts[1]}:${parts[2]}`;
+  const day = String(parts[3] || '').toLowerCase();
+  const hour24 = Number(parts[4]);
+  const modeRaw = String(parts[5] || '').toLowerCase();
+  const mode = modeRaw === 'presencial' ? 'presencial' : modeRaw === 'virtual' ? 'virtual' : undefined;
+
+  return {
+    updatedAt: Number.isNaN(Date.parse(updatedAt)) ? undefined : updatedAt,
+    day: WEEKDAY_INDEX[day] ? day : undefined,
+    hour24: Number.isFinite(hour24) ? hour24 : undefined,
+    mode,
+  };
+}
+
 type ChatbotStoredAppointment = {
   mode: 'presencial' | 'virtual';
   day: string;
@@ -739,7 +764,10 @@ export const citaController = {
             SELECT x.id, x."tenantId", x.version, x.data
             FROM "ConversationContext" x
             WHERE x."conversationId" = c.id
-              AND (x.data -> 'profile' -> 'lastAppointment') IS NOT NULL
+              AND (
+                (x.data -> 'profile' -> 'lastAppointment') IS NOT NULL
+                OR jsonb_typeof(x.data -> 'profile' -> 'lastAppointments') = 'array'
+              )
             ORDER BY x.version DESC
             LIMIT 1
           ) ctx ON true
@@ -756,19 +784,60 @@ export const citaController = {
 
         const currentData = chatbotInfo.contextData || {};
         const profile = currentData.profile || {};
-        const appointment = profile.lastAppointment || {};
+        const appointmentRef = extractChatbotAppointmentRef(id);
+        const appointments = parseChatbotAppointments(profile);
+        const selectedAppointment = appointments.find((item) => {
+          if (appointmentRef.updatedAt && item.updatedAt !== appointmentRef.updatedAt) return false;
+          if (appointmentRef.day && item.day !== appointmentRef.day) return false;
+          if (typeof appointmentRef.hour24 === 'number' && item.hour24 !== appointmentRef.hour24) return false;
+          if (appointmentRef.mode && item.mode !== appointmentRef.mode) return false;
+          return true;
+        }) || appointments.find((item) => item.status !== 'cancelada') || appointments[0];
+
+        if (!selectedAppointment) {
+          return res.status(404).json({ success: false, message: 'No se encontró la cita de chatbot para cancelar.' });
+        }
+
+        const appointment = selectedAppointment;
         const appointmentUser = appointment.user || {};
+
+        const updatedAppointments = appointments.map((item) => {
+          const sameRecord = item.updatedAt === appointment.updatedAt
+            && item.day === appointment.day
+            && item.hour24 === appointment.hour24
+            && item.mode === appointment.mode;
+          if (!sameRecord) return item;
+          return {
+            ...item,
+            status: 'cancelada' as const,
+            updatedAt: new Date().toISOString(),
+          };
+        });
+
+        const nextLastAppointment = updatedAppointments[0]
+          || {
+            ...appointment,
+            status: 'cancelada',
+            updatedAt: new Date().toISOString(),
+          };
 
         const updatedContextData = {
           ...currentData,
           profile: {
             ...profile,
             lastAppointment: {
-              ...appointment,
-              status: 'cancelada',
-              updatedAt: new Date().toISOString(),
-              cancelReason: motivo || appointment.cancelReason || 'No especificado',
+              ...nextLastAppointment,
+              cancelReason: motivo || (nextLastAppointment as any).cancelReason || 'No especificado',
             },
+            lastAppointments: updatedAppointments.map((item) => ({
+              ...item,
+              ...(item.updatedAt === appointment.updatedAt
+                && item.day === appointment.day
+                && item.hour24 === appointment.hour24
+                && item.mode === appointment.mode
+                ? { cancelReason: motivo || (item as any).cancelReason || 'No especificado' }
+                : {}),
+            })),
           },
         };
 
