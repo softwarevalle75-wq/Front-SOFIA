@@ -10,7 +10,7 @@ COPY sof-ia-frontend ./
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
 
-RUN npm run build
+RUN npx vite build
 
 FROM nginx:1.27-alpine
 
