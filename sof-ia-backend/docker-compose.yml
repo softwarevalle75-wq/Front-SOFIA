@@ -1,0 +1,73 @@
+services:
+  postgres_auth:
+    image: postgres:16-alpine
+    container_name: sofia_postgres_auth
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sofia_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_auth_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  sofia_auth:
+    build:
+      context: ./sof-ia-auth
+      dockerfile: Dockerfile
+    container_name: sofia_auth
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres_auth:5432/sofia_db?schema=auth_service
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-key-change-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-30m}
+      PORT: 3001
+      MAX_LOGIN_ATTEMPTS: 5
+      LOGIN_ATTEMPT_WINDOW_MINUTES: 15
+      SESSION_TIMEOUT_MINUTES: 30
+      PASSWORD_MIN_LENGTH: 8
+      PASSWORD_REQUIRE_UPPERCASE: "true"
+      PASSWORD_REQUIRE_LOWERCASE: "true"
+      PASSWORD_REQUIRE_NUMBER: "true"
+      PASSWORD_REQUIRE_SPECIAL: "true"
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: "587"
+      SMTP_SECURE: "false"
+      SMTP_USER: sebastianriascos892@gmail.com
+      SMTP_PASS: diemurodcxzodkmr
+      SMTP_FROM: "\"Consultorio Jurídico SOF-IA\" <sebastianriascos892@gmail.com>"
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres_auth:
+        condition: service_healthy
+    volumes:
+      - ./sof-ia-auth/prisma/seed.ts:/app/prisma/seed.ts:ro
+    command: >
+      sh -c "
+        npx prisma db push --accept-data-loss &&
+        npx ts-node prisma/seed.ts &&
+        npm start
+      "
+    restart: unless-stopped
+
+  sofia_gateway:
+    build:
+      context: ./sof-ia-gateway
+      dockerfile: Dockerfile
+    container_name: sofia_gateway
+    environment:
+      PORT: 3000
+      AUTH_SERVICE_URL: http://sofia_auth:3001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - sofia_auth
+    restart: unless-stopped
+
+volumes:
+  postgres_auth_data:
