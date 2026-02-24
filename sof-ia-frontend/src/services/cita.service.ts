@@ -168,17 +168,18 @@ export class CitaService {
       throw new Error('Error al cancelar cita');
     }
     
-    const data = response.data;
+    const data = response.data || {};
+    const fecha = data.fecha ? new Date(data.fecha).toISOString().split('T')[0] : '';
     return {
-      id: data.id,
-      estudianteId: data.estudianteId,
+      id: data.id || id,
+      estudianteId: data.estudianteId || '',
       estudianteNombre: data.estudiante?.nombre || 'Estudiante',
-      fecha: new Date(data.fecha).toISOString().split('T')[0],
-      hora: data.hora,
+      fecha,
+      hora: data.hora || '',
       modalidad: data.modalidad?.toLowerCase() || 'presencial',
       motivo: data.motivo || '',
       estado: 'cancelada',
-      createdAt: data.creadoEn,
+      createdAt: data.creadoEn || new Date().toISOString(),
     };
   }
 

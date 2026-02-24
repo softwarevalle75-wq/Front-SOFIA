@@ -16,8 +16,12 @@ const WEEKDAY_INDEX: Record<string, number> = {
   viernes: 5,
 };
 
+function getBogotaNow(): Date {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+}
+
 function toNextWeekdayDate(day?: string): Date {
-  const now = new Date();
+  const now = getBogotaNow();
   const normalized = (day || '').trim().toLowerCase();
   const target = WEEKDAY_INDEX[normalized];
   if (!target) return now;
@@ -455,7 +459,7 @@ export const citaController = {
           SLOT_NOT_AVAILABLE: 409,
           NO_ELIGIBLE_STUDENTS: 409,
         };
-        return res.status(statusByCode[error.code] || 400).json({ success: false, message: error.message });
+        return res.status(statusByCode[error.code] || 400).json({ success: false, code: error.code, message: error.message });
       }
       return res.status(500).json({ success: false, message: error.message || 'Error al agendar cita' });
     }
@@ -561,7 +565,7 @@ export const citaController = {
           SLOT_NOT_AVAILABLE: 409,
           NOT_FOUND: 404,
         };
-        return res.status(statusByCode[error.code] || 400).json({ success: false, message: error.message });
+        return res.status(statusByCode[error.code] || 400).json({ success: false, code: error.code, message: error.message });
       }
       return res.status(500).json({ success: false, message: error.message || 'Error al reprogramar cita' });
     }
@@ -844,6 +848,14 @@ export const citaController = {
           success: true,
           data: {
             id,
+            fecha: toNextWeekdayDate(appointment.day),
+            hora: hourToLabel(appointment.hour24),
+            modalidad: String(appointment.mode || '').toLowerCase() === 'presencial' ? 'PRESENCIAL' : 'VIRTUAL',
+            estudianteId: chatbotInfo.contactId || null,
+            estudiante: {
+              id: chatbotInfo.contactId || chatbotInfo.conversationId,
+              nombre: appointmentUser.fullName || chatbotInfo.displayName || 'Usuario chatbot',
+            },
             estado: 'CANCELADA',
             motivo: motivo || 'No especificado',
           },
