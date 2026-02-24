@@ -267,13 +267,30 @@ async function getUsageData(periodo: string) {
     const fechaFin = new Date(date);
     fechaFin.setHours(23, 59, 59, 999);
 
-    const count = await prisma.conversacion.count({
+    const countSistema = await prisma.conversacion.count({
       where: { createdAt: { gte: fechaInicio, lte: fechaFin } }
     });
 
+    let countChatbot = 0;
+    try {
+      const chatbotRows = await prisma.$queryRawUnsafe<Array<{ total: number }>>(
+        `
+        SELECT COUNT(*)::int AS total
+        FROM "Conversation" c
+        WHERE c."createdAt" >= $1::timestamptz
+          AND c."createdAt" <= $2::timestamptz
+        `,
+        fechaInicio.toISOString(),
+        fechaFin.toISOString(),
+      );
+      countChatbot = Number(chatbotRows[0]?.total || 0);
+    } catch {
+      countChatbot = 0;
+    }
+
     data.push({
       date: fechaInicio.toISOString().split('T')[0],
-      value: count
+      value: countSistema + countChatbot
     });
   }
 
@@ -289,13 +306,17 @@ async function getGrowthData(periodo: string) {
     const fecha = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const fechaFin = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59);
 
-    const count = await prisma.conversacion.count({
-      where: { createdAt: { gte: fecha, lte: fechaFin } }
+    const estudiantesNuevos = await prisma.estudiante.count({
+      where: { creadoEn: { gte: fecha, lte: fechaFin } }
+    });
+
+    const usuariosNuevos = await prisma.usuario.count({
+      where: { creadoEn: { gte: fecha, lte: fechaFin } }
     });
 
     data.push({
       name: months[fecha.getMonth()],
-      value: count
+      value: estudiantesNuevos + usuariosNuevos
     });
   }
 

@@ -45,6 +45,7 @@ const DashboardPage: React.FC = () => {
 
   // Estado/alertas sin datos demo
   const [systemAlerts] = useState<SystemAlert[]>([]);
+  const modalityTotal = modalityData.reduce((acc, item) => acc + item.value, 0);
   const systemStatus: SystemStatus = {
     operativo: !dashboardError,
     tiempoRespuesta: 0,
@@ -512,9 +513,9 @@ const DashboardPage: React.FC = () => {
                 </div>
                 <div className="text-right">
                   <div className={`font-bold font-poppins ${isDarkMode ? 'text-white' : 'text-indigo-600'}`}>{item.value.toLocaleString()}</div>
-                  <div className={`text-sm font-opensans ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                    {((item.value / stats.totalUsers) * 100).toFixed(1)}%
-                  </div>
+                    <div className={`text-sm font-opensans ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      {modalityTotal > 0 ? ((item.value / modalityTotal) * 100).toFixed(1) : '0.0'}%
+                    </div>
                 </div>
               </div>
             ))}
@@ -527,7 +528,7 @@ const DashboardPage: React.FC = () => {
                     className="h-full"
                     style={{
                       backgroundColor: isDarkMode ? '#ffffff' : item.color,
-                      width: `${(item.value / stats.totalUsers) * 100}%`
+                      width: `${modalityTotal > 0 ? (item.value / modalityTotal) * 100 : 0}%`
                     }}
                   />
                 ))}
