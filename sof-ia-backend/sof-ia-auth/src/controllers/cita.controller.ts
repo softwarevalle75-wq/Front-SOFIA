@@ -38,6 +38,51 @@ function hourToLabel(hour24?: number): string {
   return `${String(h).padStart(2, '0')}:00`;
 }
 
+function hourLabelToNumber(hora: string): number {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(hora || '').trim());
+  if (!match) return 9;
+  const hh = Number(match[1]);
+  return Number.isFinite(hh) ? hh : 9;
+}
+
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function toNextWeekdayDateKey(day?: string): string {
+  return formatDateKey(toNextWeekdayDate(day));
+}
+
+async function sendAppointmentNotifications(params: {
+  cita: any;
+  adminCorreo?: string;
+  usuarioNombre?: string;
+  usuarioTipoDocumento?: string;
+  usuarioNumeroDocumento?: string;
+  usuarioCorreo?: string;
+  usuarioTelefono?: string;
+  resumenConversacion?: string;
+}) {
+  const cita = params.cita;
+  if (!cita?.estudiante) return;
+
+  await notificationService.enviarNotificacionCita({
+    cita,
+    datosUsuario: {
+      nombre: params.usuarioNombre || cita.usuarioNombre || 'Usuario chatbot',
+      tipoDocumento: params.usuarioTipoDocumento || cita.usuarioTipoDocumento || 'CC',
+      numeroDocumento: params.usuarioNumeroDocumento || cita.usuarioNumeroDocumento || '',
+      correo: params.usuarioCorreo || cita.usuarioCorreo || '',
+      telefono: params.usuarioTelefono || cita.usuarioTelefono || '',
+    },
+    adminCorreo: params.adminCorreo || '',
+    resumenConversacion: params.resumenConversacion,
+  });
+}
+
 function extractChatbotConversationId(citaId: string): string | null {
   if (!citaId.startsWith('chatbot-')) return null;
   const raw = citaId.slice('chatbot-'.length);
@@ -306,6 +351,219 @@ export const citaController = {
     } catch (error: any) {
       console.error('Error al obtener disponibilidad:', error);
       return res.status(500).json({ success: false, message: error.message || 'Error al obtener disponibilidad' });
+    }
+  },
+
+  async getChatbotDisponibilidad(req: Request, res: Response) {
+    try {
+      const day = String(req.query.day || '').trim().toLowerCase();
+      const mode = String(req.query.mode || '').trim().toUpperCase();
+
+      if (!WEEKDAY_INDEX[day]) {
+        return res.status(400).json({ success: false, message: 'day inválido. Usa lunes a viernes.' });
+      }
+      if (mode !== 'PRESENCIAL' && mode !== 'VIRTUAL') {
+        return res.status(400).json({ success: false, message: 'mode inválido. Usa presencial o virtual.' });
+      }
+
+      const fecha = toNextWeekdayDateKey(day);
+      const disponibilidad = await citaService.getDisponibilidad(fecha, mode as Modalidad);
+
+      return res.json({
+        success: true,
+        data: {
+          day,
+          fecha,
+          mode: mode.toLowerCase(),
+          horasDisponibles: disponibilidad.horasDisponibles,
+          fechaDisponible: disponibilidad.fechaDisponible,
+          motivoIndisponibilidad: disponibilidad.motivoIndisponibilidad,
+        },
+      });
+    } catch (error: any) {
+      console.error('Error al obtener disponibilidad chatbot:', error);
+      return res.status(500).json({ success: false, message: error.message || 'Error al obtener disponibilidad' });
+    }
+  },
+
+  async createFromChatbot(req: Request, res: Response) {
+    try {
+      const body = req.body || {};
+      const day = String(body.day || '').trim().toLowerCase();
+      const mode = String(body.mode || '').trim().toUpperCase();
+      const hour24 = Number(body.hour24);
+
+      if (!WEEKDAY_INDEX[day]) {
+        return res.status(400).json({ success: false, message: 'day inválido. Usa lunes a viernes.' });
+      }
+      if (mode !== 'PRESENCIAL' && mode !== 'VIRTUAL') {
+        return res.status(400).json({ success: false, message: 'mode inválido. Usa presencial o virtual.' });
+      }
+      if (!Number.isFinite(hour24) || hour24 < 0 || hour24 > 23) {
+        return res.status(400).json({ success: false, message: 'hour24 inválido.' });
+      }
+
+      const fecha = toNextWeekdayDateKey(day);
+      const hora = hourToLabel(hour24);
+      const cita = await citaService.create({
+        fecha,
+        hora,
+        modalidad: mode as Modalidad,
+        motivo: body.motivo || 'Cita agendada desde chatbot',
+        usuarioNombre: body.userName || 'Usuario chatbot',
+        usuarioTipoDocumento: body.userDocumentType || 'CC',
+        usuarioNumeroDocumento: body.userDocumentNumber || '',
+        usuarioCorreo: body.userEmail || '',
+        usuarioTelefono: body.userPhone || '',
+      });
+
+      try {
+        const admin = await prisma.usuario.findFirst({ where: { rol: 'ADMIN_CONSULTORIO' } });
+        await sendAppointmentNotifications({
+          cita,
+          adminCorreo: admin?.correo,
+          usuarioNombre: body.userName,
+          usuarioTipoDocumento: body.userDocumentType,
+          usuarioNumeroDocumento: body.userDocumentNumber,
+          usuarioCorreo: body.userEmail,
+          usuarioTelefono: body.userPhone,
+        });
+      } catch (notifError) {
+        console.error('Error enviando correos de agendamiento chatbot:', notifError);
+      }
+
+      return res.status(201).json({
+        success: true,
+        data: {
+          citaId: cita.id,
+          estudianteId: cita.estudianteId,
+          estudianteNombre: cita.estudiante.nombre,
+          estudianteCorreo: cita.estudiante.correo,
+          fecha,
+          day,
+          hour24: hourLabelToNumber(cita.hora),
+          hora: cita.hora,
+          mode: String(cita.modalidad).toLowerCase(),
+        },
+      });
+    } catch (error: any) {
+      console.error('Error al agendar cita desde chatbot:', error);
+      if (citaService.isServiceError(error)) {
+        const statusByCode: Record<string, number> = {
+          INVALID_DATE: 400,
+          INVALID_HOUR: 400,
+          SLOT_NOT_AVAILABLE: 409,
+          NO_ELIGIBLE_STUDENTS: 409,
+        };
+        return res.status(statusByCode[error.code] || 400).json({ success: false, message: error.message });
+      }
+      return res.status(500).json({ success: false, message: error.message || 'Error al agendar cita' });
+    }
+  },
+
+  async cancelarFromChatbot(req: Request, res: Response) {
+    try {
+      const citaId = String(req.body?.citaId || '').trim();
+      if (!citaId) {
+        return res.status(400).json({ success: false, message: 'citaId es obligatorio.' });
+      }
+
+      const cita = await citaService.cancelar(citaId, 'Cancelada desde chatbot');
+      try {
+        const admin = await prisma.usuario.findFirst({ where: { rol: 'ADMIN_CONSULTORIO' } });
+        await notificationService.enviarNotificacionCancelacion({
+          cita,
+          datosUsuario: {
+            nombre: cita.usuarioNombre || 'Usuario chatbot',
+            tipoDocumento: cita.usuarioTipoDocumento || 'CC',
+            numeroDocumento: cita.usuarioNumeroDocumento || '',
+            correo: cita.usuarioCorreo || '',
+            telefono: cita.usuarioTelefono || '',
+          },
+          adminCorreo: admin?.correo || '',
+        });
+      } catch (notifError) {
+        console.error('Error enviando correos de cancelación chatbot:', notifError);
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          citaId: cita.id,
+          day: Object.keys(WEEKDAY_INDEX).find((k) => WEEKDAY_INDEX[k] === cita.fecha.getDay()) || '',
+          hour24: hourLabelToNumber(cita.hora),
+          mode: String(cita.modalidad).toLowerCase(),
+        },
+      });
+    } catch (error: any) {
+      console.error('Error al cancelar cita desde chatbot:', error);
+      return res.status(500).json({ success: false, message: error.message || 'Error al cancelar cita' });
+    }
+  },
+
+  async reprogramarFromChatbot(req: Request, res: Response) {
+    try {
+      const citaId = String(req.body?.citaId || '').trim();
+      const day = String(req.body?.day || '').trim().toLowerCase();
+      const hour24 = Number(req.body?.hour24);
+
+      if (!citaId) {
+        return res.status(400).json({ success: false, message: 'citaId es obligatorio.' });
+      }
+      if (!WEEKDAY_INDEX[day]) {
+        return res.status(400).json({ success: false, message: 'day inválido. Usa lunes a viernes.' });
+      }
+      if (!Number.isFinite(hour24) || hour24 < 0 || hour24 > 23) {
+        return res.status(400).json({ success: false, message: 'hour24 inválido.' });
+      }
+
+      const fecha = toNextWeekdayDateKey(day);
+      const hora = hourToLabel(hour24);
+      const cita = await citaService.reprogramar(citaId, fecha, hora);
+
+      try {
+        const admin = await prisma.usuario.findFirst({ where: { rol: 'ADMIN_CONSULTORIO' } });
+        await notificationService.enviarNotificacionReprogramacion({
+          cita,
+          datosUsuario: {
+            nombre: cita.usuarioNombre || 'Usuario chatbot',
+            tipoDocumento: cita.usuarioTipoDocumento || 'CC',
+            numeroDocumento: cita.usuarioNumeroDocumento || '',
+            correo: cita.usuarioCorreo || '',
+            telefono: cita.usuarioTelefono || '',
+          },
+          adminCorreo: admin?.correo || '',
+        }, new Date(cita.fecha), cita.hora);
+      } catch (notifError) {
+        console.error('Error enviando correos de reprogramación chatbot:', notifError);
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          citaId: cita.id,
+          estudianteId: cita.estudianteId,
+          estudianteNombre: cita.estudiante.nombre,
+          estudianteCorreo: cita.estudiante.correo,
+          fecha,
+          day,
+          hour24: hourLabelToNumber(cita.hora),
+          hora: cita.hora,
+          mode: String(cita.modalidad).toLowerCase(),
+        },
+      });
+    } catch (error: any) {
+      console.error('Error al reprogramar cita desde chatbot:', error);
+      if (citaService.isServiceError(error)) {
+        const statusByCode: Record<string, number> = {
+          INVALID_DATE: 400,
+          INVALID_HOUR: 400,
+          SLOT_NOT_AVAILABLE: 409,
+          NOT_FOUND: 404,
+        };
+        return res.status(statusByCode[error.code] || 400).json({ success: false, message: error.message });
+      }
+      return res.status(500).json({ success: false, message: error.message || 'Error al reprogramar cita' });
     }
   },
 

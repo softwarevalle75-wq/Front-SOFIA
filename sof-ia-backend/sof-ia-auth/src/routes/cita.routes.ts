@@ -1,8 +1,14 @@
 import { Router } from 'express';
 import { citaController } from '../controllers/cita.controller';
 import { authMiddleware } from '../middlewares/auth.middleware';
+import { internalTokenMiddleware } from '../middlewares/internal-token.middleware';
 
 const router = Router();
+
+router.get('/chatbot/disponibilidad', internalTokenMiddleware, citaController.getChatbotDisponibilidad);
+router.post('/chatbot/agendar', internalTokenMiddleware, citaController.createFromChatbot);
+router.post('/chatbot/cancelar', internalTokenMiddleware, citaController.cancelarFromChatbot);
+router.post('/chatbot/reprogramar', internalTokenMiddleware, citaController.reprogramarFromChatbot);
 
 // Todas las rutas requieren autenticación
 router.use(authMiddleware);
