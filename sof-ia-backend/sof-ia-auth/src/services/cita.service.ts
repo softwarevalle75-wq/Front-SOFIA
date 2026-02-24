@@ -6,8 +6,8 @@ const BOGOTA_TZ_OFFSET = '-05:00';
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 const MODALIDAD_SLOTS: Record<Modalidad, string[]> = {
-  PRESENCIAL: ['08:00', '09:00', '10:00', '11:00', '14:00', '15:00', '16:00'],
-  VIRTUAL: ['09:00', '10:00', '11:00', '12:00', '14:00', '15:00', '16:00', '17:00', '18:00'],
+  PRESENCIAL: ['13:00', '14:00', '15:00', '16:00', '17:00'],
+  VIRTUAL: ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'],
 };
 
 class CitaServiceError extends Error {
