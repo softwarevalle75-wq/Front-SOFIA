@@ -39,6 +39,7 @@ export const API_CONFIG = {
       CANCELAR: (id: string) => `/citas/${id}/cancelar`,
       REPROGRAMAR: (id: string) => `/citas/${id}/reprogramar`,
       STATS: '/citas/stats',
+      DISPONIBILIDAD: '/citas/disponibilidad',
     },
     
     // ========== Historial ==========

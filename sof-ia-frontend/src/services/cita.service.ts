@@ -3,6 +3,10 @@ import { API_CONFIG } from '@/config/api.config';
 import { ManualCita, CitasStats } from '@/types';
 
 export class CitaService {
+
+  static async reasignarCita(id: string, nuevaFecha: string, nuevaHora: string): Promise<ManualCita> {
+    return this.reprogramarCita(id, nuevaFecha, nuevaHora);
+  }
   
   static async getCitasStats(): Promise<CitasStats> {
     const response = await apiService.get<{ success: boolean; data: any }>(
@@ -70,12 +74,21 @@ export class CitaService {
     }
   }
 
-  static async crearCita(cita: Omit<ManualCita, 'id' | 'createdAt'>): Promise<ManualCita> {
+  static async crearCita(cita: {
+    fecha: string;
+    hora: string;
+    modalidad: 'presencial' | 'virtual';
+    motivo: string;
+    usuarioNombre?: string;
+    usuarioTipoDocumento?: string;
+    usuarioNumeroDocumento?: string;
+    usuarioCorreo?: string;
+    usuarioTelefono?: string;
+  }): Promise<ManualCita> {
     const response = await apiService.post<{ success: boolean; data: any }>(
       API_CONFIG.ENDPOINTS.CITAS.BASE,
       {
-        estudianteId: cita.estudianteId,
-        fecha: new Date(cita.fecha),
+        fecha: cita.fecha,
         hora: cita.hora,
         modalidad: cita.modalidad.toUpperCase(),
         motivo: cita.motivo,
@@ -88,7 +101,7 @@ export class CitaService {
     );
     
     if (!response.success) {
-      throw new Error('Error al crear cita');
+      throw new Error((response as any).message || 'Error al crear cita');
     }
     
     const data = response.data;
@@ -221,26 +234,20 @@ export class CitaService {
     horasDisponibles: string[];
     motivoIndisponibilidad?: string;
   }> {
-    const date = new Date(fecha);
-    const dayOfWeek = date.getDay();
-    
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      return {
-        fechaDisponible: false,
-        horasDisponibles: [],
-        motivoIndisponibilidad: 'Fin de semana'
-      };
+    const response = await apiService.get<{ success: boolean; data: {
+      fechaDisponible: boolean;
+      horasDisponibles: string[];
+      motivoIndisponibilidad?: string;
+    } }>(
+      API_CONFIG.ENDPOINTS.CITAS.DISPONIBILIDAD,
+      { fecha, modalidad: modalidad.toUpperCase() },
+    );
+
+    if (!response.success || !response.data) {
+      throw new Error('No fue posible consultar la disponibilidad de horarios.');
     }
 
-    const horasPresencial = ['08:00', '09:00', '10:00', '11:00', '14:00', '15:00', '16:00'];
-    const horasVirtual = ['09:00', '10:00', '11:00', '12:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
-    
-    const horasDisponibles = modalidad === 'presencial' ? horasPresencial : horasVirtual;
-
-    return {
-      fechaDisponible: horasDisponibles.length > 0,
-      horasDisponibles
-    };
+    return response.data;
   }
 
   static formatCitaDate(fecha: string): string {

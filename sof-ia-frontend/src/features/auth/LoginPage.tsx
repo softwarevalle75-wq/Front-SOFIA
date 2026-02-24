@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Mail, Lock } from 'lucide-react';
 import Button from '@/components/common/Button';
 import universityLogoWhite from '/src/assets/logos/university-logo-blanco.png';
+import loginBackground from '@/assets/logos/consul.png';
 import { authService } from '@/services/auth.service';
 import { APP_NAME, MESSAGES } from '@/config/constants';
 
@@ -36,7 +37,7 @@ const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen w-full bg-cover bg-center relative overflow-hidden" style={{ backgroundImage: 'url(/src/assets/logos/consul.png)' }}>
+    <div className="min-h-screen w-full bg-cover bg-center relative overflow-hidden" style={{ backgroundImage: `url(${loginBackground})` }}>
       {/* Overlay azul frío estático */}
       <div className="min-h-screen w-full bg-blue-900/60 absolute inset-0" />
 

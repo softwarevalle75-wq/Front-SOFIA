@@ -288,13 +288,35 @@ export const citaController = {
     }
   },
 
+  async getDisponibilidad(req: Request, res: Response) {
+    try {
+      const fecha = String(req.query.fecha || '').trim();
+      const modalidadRaw = String(req.query.modalidad || '').trim().toUpperCase();
+
+      if (!fecha) {
+        return res.status(400).json({ success: false, message: 'La fecha es obligatoria (YYYY-MM-DD).' });
+      }
+
+      if (modalidadRaw !== 'PRESENCIAL' && modalidadRaw !== 'VIRTUAL') {
+        return res.status(400).json({ success: false, message: 'La modalidad debe ser PRESENCIAL o VIRTUAL.' });
+      }
+
+      const disponibilidad = await citaService.getDisponibilidad(fecha, modalidadRaw as Modalidad);
+      return res.json({ success: true, data: disponibilidad });
+    } catch (error: any) {
+      console.error('Error al obtener disponibilidad:', error);
+      return res.status(500).json({ success: false, message: error.message || 'Error al obtener disponibilidad' });
+    }
+  },
+
   async create(req: Request, res: Response) {
     try {
       const data = req.body;
-      
-      // Convertir fecha string a Date si es necesario
-      if (typeof data.fecha === 'string') {
-        data.fecha = new Date(data.fecha);
+      if (!data?.fecha || !data?.hora || !data?.modalidad) {
+        return res.status(400).json({
+          success: false,
+          message: 'fecha, hora y modalidad son obligatorios para agendar la cita.',
+        });
       }
       
       const cita = await citaService.create(data);
@@ -321,7 +343,7 @@ export const citaController = {
         // Obtener la última conversación del estudiante
         let resumenConversacion: string | undefined;
         const ultimaConversacion = await prisma.conversacion.findFirst({
-          where: { estudianteId: data.estudianteId },
+          where: { estudianteId: cita.estudianteId },
           orderBy: { createdAt: 'desc' }
         });
         
@@ -329,7 +351,7 @@ export const citaController = {
           resumenConversacion = ultimaConversacion.resumen;
         }
 
-        if (admin && data.usuarioCorreo) {
+        if (admin?.correo || data.usuarioCorreo || cita.estudiante.correo) {
           await notificationService.enviarNotificacionCita({
             cita,
             datosUsuario: {
@@ -339,7 +361,7 @@ export const citaController = {
               correo: data.usuarioCorreo,
               telefono: data.usuarioTelefono || '',
             },
-            adminCorreo: admin.correo,
+            adminCorreo: admin?.correo || '',
             resumenConversacion,
           });
         }
@@ -351,6 +373,15 @@ export const citaController = {
       res.status(201).json({ success: true, data: cita });
     } catch (error: any) {
       console.error('Error al crear cita:', error);
+      if (citaService.isServiceError(error)) {
+        const statusByCode: Record<string, number> = {
+          INVALID_DATE: 400,
+          INVALID_HOUR: 400,
+          SLOT_NOT_AVAILABLE: 409,
+          NO_ELIGIBLE_STUDENTS: 409,
+        };
+        return res.status(statusByCode[error.code] || 400).json({ success: false, message: error.message });
+      }
       res.status(500).json({ success: false, message: error.message || 'Error al crear cita' });
     }
   },
@@ -617,8 +648,7 @@ export const citaController = {
         return res.status(404).json({ success: false, message: 'Cita no encontrada' });
       }
       
-      const nuevaFecha = typeof fecha === 'string' ? new Date(fecha) : fecha;
-      const cita = await citaService.reprogramar(id, nuevaFecha, hora);
+      const cita = await citaService.reprogramar(id, fecha, hora);
       
       // Registrar en auditoría
       await auditoriaService.registrar({
@@ -658,6 +688,15 @@ export const citaController = {
       res.json({ success: true, data: cita });
     } catch (error: any) {
       console.error('Error al reprogramar cita:', error);
+      if (citaService.isServiceError(error)) {
+        const statusByCode: Record<string, number> = {
+          INVALID_DATE: 400,
+          INVALID_HOUR: 400,
+          SLOT_NOT_AVAILABLE: 409,
+          NOT_FOUND: 404,
+        };
+        return res.status(statusByCode[error.code] || 400).json({ success: false, message: error.message });
+      }
       res.status(500).json({ success: false, message: 'Error al reprogramar cita' });
     }
   },

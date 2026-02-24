@@ -9,6 +9,7 @@ router.use(authMiddleware);
 
 router.get('/', citaController.getAll);
 router.get('/stats', citaController.getStats);
+router.get('/disponibilidad', citaController.getDisponibilidad);
 router.get('/:id', citaController.getById);
 router.post('/', citaController.create);
 router.put('/:id', citaController.update);

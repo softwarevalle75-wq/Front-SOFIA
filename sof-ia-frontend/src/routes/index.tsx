@@ -67,4 +67,14 @@ export const router = createBrowserRouter([
       },
     ],
   },
+  {
+    path: '/app',
+    element: <ProtectedRoute />,
+    children: [
+      {
+        path: '*',
+        element: <Navigate to="/dashboard" replace />,
+      },
+    ],
+  },
 ]);
