@@ -874,7 +874,7 @@ export const citaController = {
             fecha: toNextWeekdayDate(appointment.day),
             hora: hourToLabel(appointment.hour24),
             modalidad: String(appointment.mode || '').toLowerCase() === 'presencial' ? 'PRESENCIAL' : 'VIRTUAL',
-            motivo: motivo || appointment.reason || 'Cancelada desde panel administrativo',
+            motivo: motivo || (appointment as any).reason || 'Cancelada desde panel administrativo',
             estado: 'CANCELADA',
             estudiante: {
               nombre: appointmentUser.fullName || chatbotInfo.displayName || 'Usuario chatbot',
@@ -1017,7 +1017,7 @@ export const citaController = {
           },
           adminCorreo: admin?.correo || '',
         },
-        nuevaFecha,
+        new Date(cita.fecha),
         hora,
         );
       } catch (notifError) {
