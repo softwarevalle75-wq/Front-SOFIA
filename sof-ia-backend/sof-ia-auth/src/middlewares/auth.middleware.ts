@@ -19,17 +19,33 @@ export const authMiddleware = async (
   next: NextFunction
 ) => {
   try {
-    const path = (req.originalUrl || req.url || '').toLowerCase();
+    const path = String(req.originalUrl || req.url || '').toLowerCase();
     const internalToken = req.headers['x-internal-token'];
     const configuredInternalToken = process.env.CHATBOT_INTERNAL_TOKEN;
+    const isChatbotInternalRoute = path.includes('/citas/chatbot/');
 
-    if (
-      path.startsWith('/api/citas/chatbot/')
-      && typeof internalToken === 'string'
-      && typeof configuredInternalToken === 'string'
-      && configuredInternalToken.length > 0
-      && internalToken === configuredInternalToken
-    ) {
+    if (isChatbotInternalRoute) {
+      if (!configuredInternalToken || configuredInternalToken.trim().length === 0) {
+        return res.status(503).json({
+          success: false,
+          message: 'CHATBOT_INTERNAL_TOKEN no configurado en el servicio.',
+        });
+      }
+
+      if (typeof internalToken !== 'string' || internalToken.trim().length === 0) {
+        return res.status(401).json({
+          success: false,
+          message: 'Token interno requerido',
+        });
+      }
+
+      if (internalToken.trim() !== configuredInternalToken.trim()) {
+        return res.status(401).json({
+          success: false,
+          message: 'Token interno inválido',
+        });
+      }
+
       return next();
     }
 
