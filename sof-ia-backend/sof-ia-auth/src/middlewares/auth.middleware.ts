@@ -19,6 +19,20 @@ export const authMiddleware = async (
   next: NextFunction
 ) => {
   try {
+    const path = (req.originalUrl || req.url || '').toLowerCase();
+    const internalToken = req.headers['x-internal-token'];
+    const configuredInternalToken = process.env.CHATBOT_INTERNAL_TOKEN;
+
+    if (
+      path.startsWith('/api/citas/chatbot/')
+      && typeof internalToken === 'string'
+      && typeof configuredInternalToken === 'string'
+      && configuredInternalToken.length > 0
+      && internalToken === configuredInternalToken
+    ) {
+      return next();
+    }
+
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
