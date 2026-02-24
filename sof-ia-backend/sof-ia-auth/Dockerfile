@@ -2,13 +2,13 @@ FROM node:20
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY sof-ia-backend/sof-ia-auth/package*.json ./
 
 RUN npm install
 
-COPY . .
+COPY sof-ia-backend/sof-ia-auth ./
 
-RUN npx prisma generate
+RUN npx prisma generate --schema prisma/schema.prisma
 
 RUN npm run build
 
