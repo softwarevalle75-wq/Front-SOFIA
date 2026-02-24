@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, X, Check, AlertTriangle, Info, Bot } from 'lucide-react';
+import { Bell, X, Check, AlertTriangle, Info, Bot, ExternalLink } from 'lucide-react';
 import Button from '@/components/common/Button';
 import { Notification } from '@/types';
 import { NotificationService } from '@/services/notification.service';
@@ -160,48 +160,49 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ onOpenHistory }) =>
           />
 
           {/* Panel de notificaciones */}
-          <div className={`absolute right-0 mt-2 w-96 rounded-lg shadow-2xl border z-50 max-h-96 overflow-hidden ${
+          <div className={`absolute right-0 mt-2 w-[min(92vw,30rem)] rounded-xl shadow-2xl border z-50 overflow-hidden ${
             isDarkMode 
               ? 'bg-gray-800 border-gray-600' 
               : 'bg-white border-gray-200'
           }`}>
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b">
-              <div className="flex items-center gap-2">
-                <Bell className="w-4 h-4 text-university-indigo" />
-                <h3 className="font-semibold text-university-indigo font-poppins">
-                  Notificaciones
-                </h3>
-                {unreadCount > 0 && (
-                  <span className="bg-university-indigo text-white text-xs font-bold px-2 py-1 rounded-full">
-                    {unreadCount} nueva{unreadCount !== 1 ? 's' : ''}
-                  </span>
-                )}
-              </div>
-              
-              <div className="flex items-center gap-2">
-                {unreadCount > 0 && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={handleMarkAllAsRead}
-                    className="text-xs"
-                  >
-                    Marcar todas como leídas
-                  </Button>
-                )}
-                
+            <div className={`p-3 sm:p-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Bell className="w-4 h-4 text-university-indigo flex-shrink-0" />
+                  <h3 className="font-semibold text-university-indigo font-poppins truncate">
+                    Notificaciones
+                  </h3>
+                  {unreadCount > 0 && (
+                    <span className="bg-university-indigo text-white text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap">
+                      {unreadCount} nueva{unreadCount !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
                 <button
                   onClick={onOpenHistory}
-                  className="text-university-indigo hover:text-university-indigo/80 text-sm font-medium"
+                  className="inline-flex items-center gap-1 text-university-indigo hover:text-university-indigo/80 text-xs sm:text-sm font-medium whitespace-nowrap"
                 >
-                  Ver historial completo →
+                  Historial
+                  <ExternalLink className="w-3 h-3" />
                 </button>
               </div>
+
+              {unreadCount > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleMarkAllAsRead}
+                  className="mt-3 w-full text-xs"
+                >
+                  Marcar todas como leidas
+                </Button>
+              )}
             </div>
 
             {/* Lista de notificaciones */}
-            <div className="overflow-y-auto max-h-80">
+            <div className="overflow-y-auto max-h-[65vh] sm:max-h-80">
               {loading ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-university-indigo"></div>
@@ -209,7 +210,7 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ onOpenHistory }) =>
               ) : notifications.length === 0 ? (
                 <div className="text-center py-8">
                   <Bell className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500 text-sm">No tienes notificaciones</p>
+                  <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>No tienes notificaciones</p>
                 </div>
               ) : (
                 <div className="divide-y">
@@ -217,7 +218,8 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ onOpenHistory }) =>
                     <div
                       key={notification.id}
                       className={`
-                        p-4 hover:bg-gray-50 transition-colors cursor-pointer
+                        p-3 sm:p-4 transition-colors cursor-pointer
+                        ${isDarkMode ? 'hover:bg-gray-700/70' : 'hover:bg-gray-50'}
                         ${!notification.leida ? 'bg-university-indigo/5' : ''}
                       `}
                     >
@@ -234,10 +236,10 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ onOpenHistory }) =>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
-                              <p className="font-medium text-sm text-gray-900 mb-1">
+                              <p className={`font-medium text-sm mb-1 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
                                 {notification.titulo}
                               </p>
-                              <p className="text-sm text-gray-600 line-clamp-2">
+                              <p className={`text-sm line-clamp-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                                 {notification.mensaje}
                               </p>
                             </div>
