@@ -9,6 +9,7 @@ import StudentsPage from '@/features/students/StudentsPage';
 import HistorialPage from '@/features/historial/HistorialPage';
 import NotificacionesPage from '@/features/notifications/NotificacionesPage';
 import WebChatPage from '@/features/webchat/WebChatPage';
+import PublicChatbotPage from '@/features/webchat/PublicChatbotPage';
 import ProtectedRoute from './ProtectedRoute';
 import PublicRoute from './PublicRoute';
 
@@ -71,6 +72,10 @@ export const router = createBrowserRouter([
         ],
       },
     ],
+  },
+  {
+    path: '/chatbot',
+    element: <PublicChatbotPage />,
   },
   {
     path: '/app',

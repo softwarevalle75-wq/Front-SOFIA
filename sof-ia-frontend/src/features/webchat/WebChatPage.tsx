@@ -14,6 +14,10 @@ type WebchatMessage = {
   timestamp: string;
 };
 
+interface WebChatPageProps {
+  publicMode?: boolean;
+}
+
 function buildWelcomeMessage(): WebchatMessage {
   return {
     id: 'welcome',
@@ -23,7 +27,7 @@ function buildWelcomeMessage(): WebchatMessage {
   };
 }
 
-const WebChatPage: React.FC = () => {
+const WebChatPage: React.FC<WebChatPageProps> = ({ publicMode = false }) => {
   const { isDarkMode } = useTheme();
   const user = authService.getCurrentUser();
   const [input, setInput] = useState('');
@@ -50,9 +54,7 @@ const WebChatPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!isSending) {
-      focusInput();
-    }
+    if (!isSending) focusInput();
   }, [isSending]);
 
   const pushMessage = (sender: 'user' | 'bot', text: string) => {
@@ -74,13 +76,13 @@ const WebChatPage: React.FC = () => {
     }, 0);
   };
 
-  const handleSend = async (forcedText?: string) => {
-    const text = (forcedText ?? input).trim();
+  const handleSend = async () => {
+    const text = input.trim();
     if (!text || isSending) return;
 
     setError('');
     setIsSending(true);
-    if (!forcedText) setInput('');
+    setInput('');
     pushMessage('user', text);
 
     try {
@@ -116,7 +118,7 @@ const WebChatPage: React.FC = () => {
         displayName: user?.nombre || user?.email,
       });
     } catch {
-      // Si falla el reset remoto, de todas formas reiniciamos la sesion local del chat
+      // Ignore remote reset failure.
     } finally {
       webchatService.restartSession();
       setInput('');
@@ -132,14 +134,16 @@ const WebChatPage: React.FC = () => {
     }
   };
 
+  const containerClass = publicMode
+    ? 'relative h-screen overflow-hidden bg-white'
+    : 'relative h-[calc(100vh-9rem)] overflow-hidden rounded-2xl bg-white';
+
   return (
-    <div className="relative h-[calc(100vh-9rem)] overflow-hidden rounded-2xl bg-white">
+    <div className={containerClass}>
       <div className="relative z-10 flex h-full min-h-0 flex-col p-3 sm:p-6">
         <div
           className={`mx-auto flex h-full min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-lg ${
-            isDarkMode
-              ? 'border-[#C9A227]/35 bg-[#0E164E]/55'
-              : 'border-[#C9A227]/40 bg-[#0E164E]/50'
+            isDarkMode ? 'border-[#C9A227]/35 bg-[#0E164E]/55' : 'border-[#C9A227]/40 bg-[#0E164E]/50'
           }`}
           style={{
             backgroundImage: `linear-gradient(to bottom, rgba(14,22,78,0.84), rgba(14,22,78,0.82)), url(${loginBackground})`,
@@ -153,11 +157,9 @@ const WebChatPage: React.FC = () => {
                 <img src={universityLogo} alt="Universitaria de Colombia" className="h-11 w-auto object-contain" />
               </div>
               <div className="flex h-11 w-11 items-center justify-center rounded-full border border-[#C9A227]/40 bg-white/10">
-                <Bot className="h-5.5 w-5.5 text-[#FFCD00]" />
+                <Bot className="h-5 w-5 text-[#FFCD00]" />
               </div>
-              <div>
-                <h1 className="text-xl font-bold font-poppins text-white">SOF-IA</h1>
-              </div>
+              <h1 className="text-xl font-bold font-poppins text-white">SOF-IA</h1>
             </div>
             <Button
               variant="secondary"
@@ -177,17 +179,16 @@ const WebChatPage: React.FC = () => {
                 <div
                   className={`max-w-[86%] rounded-xl px-4 py-3 shadow-md sm:max-w-[74%] ${
                     msg.sender === 'user'
-                      ? 'bg-[#2D35A5] text-white border border-[#C9A227]/35'
+                      ? 'border border-[#C9A227]/35 bg-[#2D35A5] text-white'
                       : 'border border-white/20 bg-white/12 text-white backdrop-blur-sm'
                   }`}
                 >
                   <p className="whitespace-pre-wrap text-base leading-relaxed font-opensans">{msg.text}</p>
-                  <p className={`mt-1.5 text-xs ${msg.sender === 'user' ? 'text-[#FFE58A]' : 'text-blue-100/80'}`}>
-                    {msg.timestamp}
-                  </p>
+                  <p className={`mt-1.5 text-xs ${msg.sender === 'user' ? 'text-[#FFE58A]' : 'text-blue-100/80'}`}>{msg.timestamp}</p>
                 </div>
               </div>
             ))}
+
             {isSending && (
               <div className="flex justify-start">
                 <div className="rounded-xl border border-white/20 bg-white/12 px-4 py-2.5 text-base font-opensans text-blue-100">
@@ -197,11 +198,7 @@ const WebChatPage: React.FC = () => {
             )}
           </div>
 
-          {error && (
-            <div className="px-4 pb-2 text-sm font-opensans text-red-200 sm:px-6">
-              {error}
-            </div>
-          )}
+          {error && <div className="px-4 pb-2 text-sm font-opensans text-red-200 sm:px-6">{error}</div>}
 
           <div className="border-t border-[#C9A227]/25 px-5 py-4 sm:px-6">
             <div className="flex items-center gap-2">
@@ -224,7 +221,7 @@ const WebChatPage: React.FC = () => {
                 onClick={() => void handleSend()}
                 onMouseDown={(event) => event.preventDefault()}
                 disabled={!canSend}
-                className="h-12 px-5 text-base bg-[#2D35A5] hover:bg-[#3D45B8] border border-[#C9A227]/45"
+                className="h-12 border border-[#C9A227]/45 bg-[#2D35A5] px-5 text-base hover:bg-[#3D45B8]"
               >
                 <Send className="h-5 w-5" />
                 Enviar
