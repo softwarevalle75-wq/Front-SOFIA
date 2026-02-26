@@ -11,6 +11,42 @@ import {
 
 const prisma = new PrismaClient();
 
+type OrchestratorResponseItem = {
+  type?: string;
+  text?: string;
+  payload?: Record<string, unknown>;
+};
+
+type OrchestratorEnvelope = {
+  success?: boolean;
+  data?: {
+    responses?: OrchestratorResponseItem[];
+    conversationId?: string;
+    correlationId?: string;
+  };
+  message?: string;
+};
+
+function getOrchestratorBaseUrl(): string {
+  return process.env.ORCHESTRATOR_SERVICE_URL || 'http://localhost:3021';
+}
+
+function getWebchatTenantId(): string {
+  return process.env.WEBCHAT_TENANT_ID || 'tenant_ai_demo';
+}
+
+function normalizeExternalUserId(req: Request): string {
+  const authUser = (req as Request & { user?: { userId?: string; email?: string } }).user;
+  const body = req.body as { externalUserId?: unknown };
+  const rawExternalId = typeof body.externalUserId === 'string' ? body.externalUserId.trim() : '';
+
+  if (rawExternalId) return rawExternalId;
+  if (authUser?.userId) return authUser.userId;
+  if (authUser?.email) return authUser.email;
+
+  return `web-${req.ip || req.socket.remoteAddress || randomUUID()}`;
+}
+
 function mapCanalToChatbotEnum(canal?: string): 'WHATSAPP' | 'WEBCHAT' | undefined {
   if (!canal) return undefined;
   const raw = String(canal).toLowerCase();
@@ -441,6 +477,84 @@ export const conversacionController = {
     } catch (error) {
       console.error('Error getting mensajes:', error);
       res.status(500).json({ success: false, message: 'Error al obtener mensajes' });
+    }
+  },
+
+  async sendWebchatMessage(req: Request, res: Response) {
+    try {
+      const body = req.body as {
+        message?: unknown;
+        externalUserId?: unknown;
+        displayName?: unknown;
+        tenantId?: unknown;
+      };
+
+      const message = typeof body.message === 'string' ? body.message.trim() : '';
+      if (!message) {
+        return res.status(400).json({ success: false, message: 'El mensaje es obligatorio.' });
+      }
+
+      const externalUserId = normalizeExternalUserId(req);
+      const tenantId = typeof body.tenantId === 'string' && body.tenantId.trim().length > 0
+        ? body.tenantId.trim()
+        : getWebchatTenantId();
+      const displayName = typeof body.displayName === 'string' && body.displayName.trim().length > 0
+        ? body.displayName.trim()
+        : undefined;
+
+      const orchestratorUrl = `${getOrchestratorBaseUrl().replace(/\/$/, '')}/v1/orchestrator/handle-message`;
+      const correlationId = `webchat-${Date.now()}-${randomUUID()}`;
+
+      const orchestratorPayload = {
+        tenantId,
+        channel: 'webchat' as const,
+        externalUserId,
+        ...(displayName ? { displayName } : {}),
+        message: {
+          type: 'text' as const,
+          text: message,
+        },
+      };
+
+      const response = await fetch(orchestratorUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-correlation-id': correlationId,
+          'x-request-id': correlationId,
+        },
+        body: JSON.stringify(orchestratorPayload),
+      });
+
+      const payload = (await response.json()) as OrchestratorEnvelope;
+      if (!response.ok || payload.success === false) {
+        return res.status(502).json({
+          success: false,
+          message: payload.message || 'No fue posible procesar el mensaje en el orquestador.',
+        });
+      }
+
+      const responses = Array.isArray(payload.data?.responses) ? payload.data.responses : [];
+      const botMessages = responses
+        .map((item) => (typeof item?.text === 'string' ? item.text.trim() : ''))
+        .filter((text) => text.length > 0);
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          externalUserId,
+          conversationId: payload.data?.conversationId || null,
+          correlationId: payload.data?.correlationId || correlationId,
+          responses,
+          botMessages,
+        },
+      });
+    } catch (error) {
+      console.error('Error sending webchat message:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Error al enviar mensaje al chatbot web.',
+      });
     }
   },
 

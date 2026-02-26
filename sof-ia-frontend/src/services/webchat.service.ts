@@ -1,4 +1,6 @@
+import { API_CONFIG } from '@/config/api.config';
 import { CHATBOT_CONFIG } from '@/config/constants';
+import { apiService } from '@/services/api.service';
 
 interface WebchatSendMessageResponse {
   success: boolean;
@@ -34,28 +36,49 @@ function rotateExternalUserId(): string {
 }
 
 class WebchatService {
-  private readonly endpoint = `${(import.meta.env.VITE_CHATBOT_WEB_API_URL || 'http://localhost:3060').replace(/\/$/, '')}/v1/chatbot/web/message`;
+  private readonly microserviceEndpoint = (() => {
+    const raw = String(import.meta.env.VITE_CHATBOT_WEB_API_URL || '').trim();
+    if (!raw) return null;
+    return `${raw.replace(/\/$/, '')}/v1/chatbot/web/message`;
+  })();
+
+  private readonly apiFallbackEndpoint = `${API_CONFIG.ENDPOINTS.CONVERSACIONES.BASE}/webchat/message`;
 
   async sendMessage(input: { text: string; displayName?: string }): Promise<string[]> {
-    const response = await fetch(this.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        message: input.text,
-        displayName: input.displayName,
-        externalUserId: getStoredExternalUserId(),
-        tenantId: import.meta.env.VITE_WEBCHAT_TENANT_ID || CHATBOT_CONFIG.WEBCHAT_TENANT_ID,
-      }),
-    });
+    const payloadBody = {
+      message: input.text,
+      displayName: input.displayName,
+      externalUserId: getStoredExternalUserId(),
+      tenantId: import.meta.env.VITE_WEBCHAT_TENANT_ID || CHATBOT_CONFIG.WEBCHAT_TENANT_ID,
+    };
 
-    const payload = (await response.json()) as WebchatSendMessageResponse;
-    if (!response.ok || !payload.success) {
-      throw new Error(payload.message || 'No fue posible enviar el mensaje al chatbot.');
+    if (this.microserviceEndpoint) {
+      try {
+        const response = await fetch(this.microserviceEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payloadBody),
+        });
+
+        const payload = (await response.json()) as WebchatSendMessageResponse;
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.message || 'No fue posible enviar el mensaje al chatbot.');
+        }
+
+        return payload.data?.botMessages || [];
+      } catch {
+        // Si falla el microservicio externo (DNS/CORS/red), intentamos por API interna.
+      }
     }
 
-    return payload.data?.botMessages || [];
+    const fallback = await apiService.post<WebchatSendMessageResponse>(this.apiFallbackEndpoint, payloadBody);
+    if (!fallback.success) {
+      throw new Error(fallback.message || 'No fue posible enviar el mensaje al chatbot.');
+    }
+
+    return fallback.data?.botMessages || [];
   }
 
   restartSession() {
