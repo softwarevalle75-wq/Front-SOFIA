@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Send, RotateCcw } from 'lucide-react';
 import { useTheme } from '@/components/layout/MainLayout';
 import Button from '@/components/common/Button';
@@ -32,8 +32,28 @@ const WebChatPage: React.FC = () => {
   const [messages, setMessages] = useState<WebchatMessage[]>([buildWelcomeMessage()]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const canSend = useMemo(() => input.trim().length > 0 && !isSending, [input, isSending]);
+
+  const focusInput = () => {
+    requestAnimationFrame(() => {
+      if (!inputRef.current) return;
+      inputRef.current.focus({ preventScroll: true });
+      const length = inputRef.current.value.length;
+      inputRef.current.setSelectionRange(length, length);
+    });
+  };
+
+  useEffect(() => {
+    focusInput();
+  }, []);
+
+  useEffect(() => {
+    if (!isSending) {
+      focusInput();
+    }
+  }, [isSending]);
 
   const pushMessage = (sender: 'user' | 'bot', text: string) => {
     const timestamp = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
@@ -80,6 +100,7 @@ const WebChatPage: React.FC = () => {
       pushMessage('bot', 'Ocurrio un problema al procesar tu mensaje. Intenta nuevamente.');
     } finally {
       setIsSending(false);
+      focusInput();
     }
   };
 
@@ -101,6 +122,7 @@ const WebChatPage: React.FC = () => {
       setInput('');
       setMessages([buildWelcomeMessage()]);
       setIsSending(false);
+      focusInput();
 
       setTimeout(() => {
         if (scrollContainerRef.current) {
@@ -141,6 +163,7 @@ const WebChatPage: React.FC = () => {
               variant="secondary"
               size="md"
               onClick={handleReset}
+              onMouseDown={(event) => event.preventDefault()}
               className="h-11 border border-[#C9A227]/45 bg-[#1A1F71]/70 text-[#FFCD00] hover:bg-[#222A8A]"
             >
               <RotateCcw className="h-4 w-4" />
@@ -183,6 +206,7 @@ const WebChatPage: React.FC = () => {
           <div className="border-t border-[#C9A227]/25 px-5 py-4 sm:px-6">
             <div className="flex items-center gap-2">
               <input
+                ref={inputRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
@@ -198,6 +222,7 @@ const WebChatPage: React.FC = () => {
               <Button
                 variant="primary"
                 onClick={() => void handleSend()}
+                onMouseDown={(event) => event.preventDefault()}
                 disabled={!canSend}
                 className="h-12 px-5 text-base bg-[#2D35A5] hover:bg-[#3D45B8] border border-[#C9A227]/45"
               >
