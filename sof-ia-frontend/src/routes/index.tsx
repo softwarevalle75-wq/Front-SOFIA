@@ -8,6 +8,7 @@ import SurveysPage from '@/features/surveys/SurveysPage';
 import StudentsPage from '@/features/students/StudentsPage';
 import HistorialPage from '@/features/historial/HistorialPage';
 import NotificacionesPage from '@/features/notifications/NotificacionesPage';
+import WebChatPage from '@/features/webchat/WebChatPage';
 import ProtectedRoute from './ProtectedRoute';
 import PublicRoute from './PublicRoute';
 
@@ -62,6 +63,10 @@ export const router = createBrowserRouter([
           {
             path: 'notificaciones',
             element: <NotificacionesPage />,
+          },
+          {
+            path: 'webchat',
+            element: <WebChatPage />,
           },
         ],
       },
