@@ -1,7 +1,29 @@
 import { Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
+import {
+  buildConsultationSummary,
+  getStoredConsultationSummary,
+  segmentConsultationsByMarkers,
+} from '../utils/chatbot-consultation.utils';
 
 const prisma = new PrismaClient();
+
+function mapCanalToChatbotEnum(canal?: string): 'WHATSAPP' | 'WEBCHAT' | undefined {
+  if (!canal) return undefined;
+  const raw = String(canal).toLowerCase();
+  if (raw === 'whatsapp') return 'WHATSAPP';
+  if (raw === 'web' || raw === 'webchat') return 'WEBCHAT';
+  return undefined;
+}
+
+function mapStatusToFiltro(estado?: string): 'CLOSED' | 'OPEN' | undefined {
+  if (!estado) return undefined;
+  const raw = String(estado).toLowerCase();
+  if (raw === 'leido') return 'CLOSED';
+  if (raw === 'no_leido') return 'OPEN';
+  return undefined;
+}
 
 export const conversacionController = {
   async getAll(req: Request, res: Response) {
@@ -10,33 +32,19 @@ export const conversacionController = {
 
       if (origen === 'chatbot') {
         const whereClauses: string[] = ['1=1'];
-        const whereParams: any[] = [];
+        const whereParams: unknown[] = [];
 
-        if (search) {
-          const value = `%${String(search)}%`;
-          whereParams.push(value, value, value);
-          const base = whereParams.length - 2;
-          whereClauses.push(`(
-            COALESCE(ct."displayName", '') ILIKE $${base} OR
-            COALESCE(ct."externalId", '') ILIKE $${base + 1} OR
-            COALESCE(fm.text, '') ILIKE $${base + 2}
-          )`);
-        }
-
-        if (canal) {
-          const canalRaw = String(canal).toLowerCase();
-          const canalValue = canalRaw === 'whatsapp' ? 'WHATSAPP' : canalRaw === 'web' ? 'WEBCHAT' : String(canal).toUpperCase();
-          whereParams.push(canalValue);
+        const canalFiltro = mapCanalToChatbotEnum(String(canal || ''));
+        if (canalFiltro) {
+          whereParams.push(canalFiltro);
           whereClauses.push(`c."channel" = $${whereParams.length}`);
         }
 
-        if (estado) {
-          const estadoRaw = String(estado).toLowerCase();
-          if (estadoRaw === 'leido') {
-            whereClauses.push(`c."status" = 'CLOSED'`);
-          } else if (estadoRaw === 'no_leido') {
-            whereClauses.push(`c."status" <> 'CLOSED'`);
-          }
+        const statusFiltro = mapStatusToFiltro(String(estado || ''));
+        if (statusFiltro === 'CLOSED') {
+          whereClauses.push(`c."status" = 'CLOSED'`);
+        } else if (statusFiltro === 'OPEN') {
+          whereClauses.push(`c."status" <> 'CLOSED'`);
         }
 
         if (fechaInicio) {
@@ -49,73 +57,124 @@ export const conversacionController = {
           whereClauses.push(`c."createdAt" <= $${whereParams.length}`);
         }
 
-        const skip = (Number(page) - 1) * Number(pageSize);
         const whereSql = whereClauses.join(' AND ');
 
-        const totalResult = await prisma.$queryRawUnsafe<Array<{ total: number }>>(
-          `
-          SELECT COUNT(*)::int AS total
-          FROM "Conversation" c
-          LEFT JOIN "Contact" ct ON ct.id = c."contactId"
-          LEFT JOIN LATERAL (
-            SELECT m.text
-            FROM "Message" m
-            WHERE m."conversationId" = c.id
-              AND m."direction" = 'IN'
-            ORDER BY m."createdAt" ASC
-            LIMIT 1
-          ) fm ON true
-          WHERE ${whereSql}
-          `,
-          ...whereParams,
-        );
-
-        const conversaciones = await prisma.$queryRawUnsafe<any[]>(
+        const conversationRows = await prisma.$queryRawUnsafe<any[]>(
           `
           SELECT
             c.id,
-            COALESCE(fm.text, 'Conversación de chatbot') AS "temaLegal",
-            NULL::text AS consultorio,
-            CASE WHEN c."status" = 'CLOSED' THEN 'leido' ELSE 'no_leido' END AS estado,
-            CASE WHEN c."channel" = 'WHATSAPP' THEN 'whatsapp' ELSE 'web' END AS canal,
-            fm.text AS "primerMensaje",
-            NULL::text AS resumen,
+            c."status",
+            c."channel",
             c."createdAt",
-            json_build_object(
-              'id', ct.id,
-              'nombre', COALESCE(ct."displayName", ct."externalId", 'Usuario'),
-              'documento', COALESCE(ct."externalId", '')
-            ) AS estudiante
+            ct.id AS "contactId",
+            ct."displayName",
+            ct."externalId",
+            cc.data AS "contextData"
           FROM "Conversation" c
           LEFT JOIN "Contact" ct ON ct.id = c."contactId"
           LEFT JOIN LATERAL (
-            SELECT m.text
-            FROM "Message" m
-            WHERE m."conversationId" = c.id
-              AND m."direction" = 'IN'
-            ORDER BY m."createdAt" ASC
+            SELECT ctx.data
+            FROM "ConversationContext" ctx
+            WHERE ctx."conversationId" = c.id
+            ORDER BY ctx.version DESC
             LIMIT 1
-          ) fm ON true
+          ) cc ON true
           WHERE ${whereSql}
           ORDER BY c."createdAt" DESC
-          LIMIT $${whereParams.length + 1}
-          OFFSET $${whereParams.length + 2}
           `,
           ...whereParams,
-          Number(pageSize),
-          skip,
         );
 
-        const total = Number(totalResult[0]?.total || 0);
+        const conversationIds = conversationRows.map((row) => row.id).filter(Boolean);
+        let messageRows: Array<{ id: string; conversationId: string; direction: 'IN' | 'OUT'; text: string; createdAt: Date | string }> = [];
+
+        if (conversationIds.length > 0) {
+          const placeholders = conversationIds.map((_id, index) => `$${index + 1}`).join(', ');
+          messageRows = await prisma.$queryRawUnsafe<any[]>(
+            `
+            SELECT
+              m.id,
+              m."conversationId" AS "conversationId",
+              m."direction" AS "direction",
+              COALESCE(m.text, '') AS text,
+              m."createdAt" AS "createdAt"
+            FROM "Message" m
+            WHERE m."conversationId" IN (${placeholders})
+            ORDER BY m."createdAt" ASC
+            `,
+            ...conversationIds,
+          );
+        }
+
+        const messagesByConversation = new Map<string, typeof messageRows>();
+        for (const message of messageRows) {
+          const list = messagesByConversation.get(message.conversationId) || [];
+          list.push(message);
+          messagesByConversation.set(message.conversationId, list);
+        }
+
+        const consultations = conversationRows.flatMap((row) => {
+          const messages = messagesByConversation.get(row.id) || [];
+          const segments = segmentConsultationsByMarkers({
+            conversationId: row.id,
+            messages,
+          });
+
+          return segments.map((segment) => {
+            const storedSummary = getStoredConsultationSummary(row.contextData, segment.id);
+            return {
+              id: segment.id,
+              conversationId: row.id,
+              temaLegal: segment.firstUserMessage || 'Consulta de chatbot',
+              consultorio: null,
+              estado: segment.status === 'closed' ? 'leido' : 'no_leido',
+              canal: row.channel === 'WHATSAPP' ? 'whatsapp' : 'web',
+              primerMensaje: segment.firstUserMessage,
+              resumen: storedSummary || buildConsultationSummary(segment),
+              createdAt: segment.startedAt.toISOString(),
+              endedAt: segment.endedAt ? segment.endedAt.toISOString() : null,
+              estudiante: {
+                id: row.contactId,
+                nombre: row.displayName || row.externalId || 'Usuario',
+                documento: row.externalId || '',
+              },
+            };
+          });
+        });
+
+        let filteredConsultations = consultations;
+        if (search) {
+          const searchValue = String(search).toLowerCase();
+          filteredConsultations = consultations.filter((item) => {
+            const usuario = String(item.estudiante?.nombre || '').toLowerCase();
+            const documento = String(item.estudiante?.documento || '').toLowerCase();
+            const consulta = String(item.temaLegal || '').toLowerCase();
+            const primerMensaje = String(item.primerMensaje || '').toLowerCase();
+            return usuario.includes(searchValue)
+              || documento.includes(searchValue)
+              || consulta.includes(searchValue)
+              || primerMensaje.includes(searchValue);
+          });
+        }
+
+        filteredConsultations = filteredConsultations.sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+
+        const pageNumber = Number(page) || 1;
+        const pageSizeNumber = Number(pageSize) || 10;
+        const total = filteredConsultations.length;
+        const skip = Math.max(0, (pageNumber - 1) * pageSizeNumber);
+        const data = filteredConsultations.slice(skip, skip + pageSizeNumber);
 
         return res.json({
           success: true,
-          data: conversaciones,
+          data,
           pagination: {
-            page: Number(page),
-            pageSize: Number(pageSize),
+            page: pageNumber,
+            pageSize: pageSizeNumber,
             total,
-            totalPages: Math.ceil(total / Number(pageSize)),
+            totalPages: Math.ceil(total / pageSizeNumber),
           },
         });
       }
@@ -175,38 +234,26 @@ export const conversacionController = {
       const { origen } = req.query;
 
       if (origen === 'chatbot') {
+        const consultationId = String(id || '').trim();
+        const conversationId = consultationId.split(':')[0] || consultationId;
+
         const rows = await prisma.$queryRawUnsafe<any[]>(
           `
           SELECT
             c.id,
-            COALESCE(fm.text, 'Conversacion de chatbot') AS "temaLegal",
-            NULL::text AS consultorio,
-            CASE WHEN c."status" = 'CLOSED' THEN 'leido' ELSE 'no_leido' END AS estado,
-            CASE WHEN c."channel" = 'WHATSAPP' THEN 'whatsapp' ELSE 'web' END AS canal,
-            fm.text AS "primerMensaje",
-            COALESCE(
-              NULLIF(cc.data ->> 'resumen', ''),
-              NULLIF(cc.data ->> 'summary', ''),
-              NULL
-            ) AS resumen,
             c."createdAt",
+            c."status",
+            c."channel",
             json_build_object(
               'id', ct.id,
               'nombre', COALESCE(ct."displayName", ct."externalId", 'Usuario'),
               'documento', COALESCE(ct."externalId", ''),
               'correo', NULL,
               'telefono', ct.phone
-            ) AS estudiante
+            ) AS estudiante,
+            cc.data AS "contextData"
           FROM "Conversation" c
           LEFT JOIN "Contact" ct ON ct.id = c."contactId"
-          LEFT JOIN LATERAL (
-            SELECT m.text
-            FROM "Message" m
-            WHERE m."conversationId" = c.id
-              AND m."direction" = 'IN'
-            ORDER BY m."createdAt" ASC
-            LIMIT 1
-          ) fm ON true
           LEFT JOIN LATERAL (
             SELECT ctx.data
             FROM "ConversationContext" ctx
@@ -217,12 +264,12 @@ export const conversacionController = {
           WHERE c.id = $1
           LIMIT 1
           `,
-          id,
+          conversationId,
         );
 
-        const conversacion = rows[0] || null;
+        const conversation = rows[0] || null;
 
-        if (!conversacion) {
+        if (!conversation) {
           return res.status(404).json({ success: false, message: 'Conversación no encontrada' });
         }
 
@@ -237,14 +284,50 @@ export const conversacionController = {
           WHERE m."conversationId" = $1
           ORDER BY m."createdAt" ASC
           `,
-          id,
+          conversationId,
         );
+
+        const segments = segmentConsultationsByMarkers({
+          conversationId,
+          messages: mensajes.map((item) => ({
+            id: item.id,
+            direction: item.tipo === 'ia' ? 'OUT' : 'IN',
+            text: item.contenido || '',
+            createdAt: item.createdAt,
+          })),
+        });
+
+        const selectedSegment = segments.find((segment) => segment.id === consultationId)
+          || segments.find((segment) => segment.id === `${conversationId}:${consultationId}`)
+          || null;
+
+        if (!selectedSegment) {
+          return res.status(404).json({ success: false, message: 'Consulta no encontrada dentro de la conversación' });
+        }
+
+        const filteredMessages = selectedSegment.messages.map((item) => ({
+          id: item.id,
+          tipo: item.direction === 'OUT' ? 'ia' : 'usuario',
+          contenido: item.text,
+          createdAt: item.createdAt,
+        }));
+
+        const storedSummary = getStoredConsultationSummary(conversation.contextData, selectedSegment.id);
 
         return res.json({
           success: true,
           data: {
-            ...conversacion,
-            mensajes,
+            id: selectedSegment.id,
+            conversationId,
+            temaLegal: selectedSegment.firstUserMessage || 'Consulta de chatbot',
+            consultorio: null,
+            estado: selectedSegment.status === 'closed' ? 'leido' : 'no_leido',
+            canal: conversation.channel === 'WHATSAPP' ? 'whatsapp' : 'web',
+            primerMensaje: selectedSegment.firstUserMessage,
+            resumen: storedSummary || buildConsultationSummary(selectedSegment),
+            createdAt: selectedSegment.startedAt.toISOString(),
+            estudiante: conversation.estudiante,
+            mensajes: filteredMessages,
             asesoramiento: null,
             encuesta: null,
           },
@@ -282,6 +365,9 @@ export const conversacionController = {
       const { origen } = req.query;
 
       if (origen === 'chatbot') {
+        const consultationId = String(id || '').trim();
+        const conversationId = consultationId.split(':')[0] || consultationId;
+
         const mensajes = await prisma.$queryRawUnsafe<any[]>(
           `
           SELECT
@@ -293,10 +379,35 @@ export const conversacionController = {
           WHERE m."conversationId" = $1
           ORDER BY m."createdAt" ASC
           `,
-          id,
+          conversationId,
         );
 
-        return res.json({ success: true, data: mensajes });
+        const segments = segmentConsultationsByMarkers({
+          conversationId,
+          messages: mensajes.map((item) => ({
+            id: item.id,
+            direction: item.tipo === 'ia' ? 'OUT' : 'IN',
+            text: item.contenido || '',
+            createdAt: item.createdAt,
+          })),
+        });
+
+        const selectedSegment = segments.find((segment) => segment.id === consultationId)
+          || segments.find((segment) => segment.id === `${conversationId}:${consultationId}`)
+          || null;
+
+        if (!selectedSegment) {
+          return res.status(404).json({ success: false, message: 'Consulta no encontrada dentro de la conversación' });
+        }
+
+        const filteredMessages = selectedSegment.messages.map((item) => ({
+          id: item.id,
+          tipo: item.direction === 'OUT' ? 'ia' : 'usuario',
+          contenido: item.text,
+          createdAt: item.createdAt,
+        }));
+
+        return res.json({ success: true, data: filteredMessages });
       }
       
       const mensajes = await prisma.mensaje.findMany({
@@ -385,6 +496,74 @@ export const conversacionController = {
     try {
       const { id } = req.params;
       const { resumen } = req.body;
+      const { origen } = req.query;
+
+      if (origen === 'chatbot') {
+        const consultationId = String(id || '').trim();
+        const conversationId = consultationId.split(':')[0] || consultationId;
+
+        if (typeof resumen !== 'string' || resumen.trim().length === 0) {
+          return res.status(400).json({ success: false, message: 'resumen es obligatorio para consultas de chatbot.' });
+        }
+
+        const latestContextRows = await prisma.$queryRawUnsafe<any[]>(
+          `
+          SELECT id, "tenantId", version, data
+          FROM "ConversationContext"
+          WHERE "conversationId" = $1
+          ORDER BY version DESC
+          LIMIT 1
+          `,
+          conversationId,
+        );
+
+        const latestContext = latestContextRows[0] || null;
+        if (!latestContext) {
+          return res.status(404).json({ success: false, message: 'No se encontró contexto de conversación para guardar el resumen.' });
+        }
+
+        const currentData = (latestContext.data && typeof latestContext.data === 'object')
+          ? latestContext.data as Record<string, unknown>
+          : {};
+        const currentProfile = (currentData.profile && typeof currentData.profile === 'object')
+          ? currentData.profile as Record<string, unknown>
+          : {};
+        const currentSummaries = (currentProfile.consultationSummaries && typeof currentProfile.consultationSummaries === 'object')
+          ? currentProfile.consultationSummaries as Record<string, unknown>
+          : {};
+
+        const nextData = {
+          ...currentData,
+          profile: {
+            ...currentProfile,
+            consultationSummaries: {
+              ...currentSummaries,
+              [consultationId]: resumen.trim(),
+            },
+          },
+        };
+
+        await prisma.$executeRawUnsafe(
+          `
+          INSERT INTO "ConversationContext" (id, "tenantId", "conversationId", version, data)
+          VALUES ($1, $2, $3, $4, $5::jsonb)
+          `,
+          randomUUID(),
+          String(latestContext.tenantId),
+          conversationId,
+          Number(latestContext.version || 0) + 1,
+          JSON.stringify(nextData),
+        );
+
+        return res.json({
+          success: true,
+          data: {
+            id: consultationId,
+            conversationId,
+            resumen: resumen.trim(),
+          },
+        });
+      }
       
       const conversacion = await prisma.conversacion.update({
         where: { id },

@@ -21,6 +21,7 @@ const ChatSummaryModal: React.FC<ChatSummaryModalProps> = ({
 }) => {
   const { isDarkMode } = useTheme();
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [chatSummary, setChatSummary] = useState<ChatSummary | null>(null);
   const [summaryError, setSummaryError] = useState('');
   const [activeTab, setActiveTab] = useState<'conversation' | 'summary'>('conversation');
@@ -36,6 +37,7 @@ const ChatSummaryModal: React.FC<ChatSummaryModalProps> = ({
         success: boolean;
         data?: {
           id: string;
+          conversationId?: string;
           temaLegal: string;
           consultorio: string | null;
           estado: string;
@@ -73,6 +75,7 @@ const ChatSummaryModal: React.FC<ChatSummaryModalProps> = ({
 
   const formatRelativeTime = (dateString: string): string => {
     const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return 'Fecha no disponible';
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
@@ -88,6 +91,26 @@ const ChatSummaryModal: React.FC<ChatSummaryModalProps> = ({
       month: 'short', 
       year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined 
     });
+  };
+
+  const guardarResumen = async () => {
+    if (!chatSummary) return;
+    setSaving(true);
+    setSummaryError('');
+    try {
+      const result = await apiService.put<{ success: boolean }>(
+        `${API_CONFIG.ENDPOINTS.CONVERSACIONES.BY_ID(chatSummary.id)}/resumen?origen=chatbot`,
+        { resumen: chatSummary.resumen },
+      );
+
+      if (!result.success) {
+        setSummaryError('No fue posible guardar el resumen de la consulta.');
+      }
+    } catch (_error) {
+      setSummaryError('Error al guardar el resumen de la consulta.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   useEffect(() => {
@@ -182,7 +205,7 @@ const ChatSummaryModal: React.FC<ChatSummaryModalProps> = ({
                     <p className={`text-sm font-opensans italic ${
                       isDarkMode ? 'text-gray-300' : 'text-gray-700'
                     }`}>
-                      "{chatHistory.momento}: {chatHistory.mensaje}"
+                      {`"${chatHistory.momento}: ${chatHistory.mensaje}"`}
                     </p>
                   </div>
                 </div>
@@ -262,11 +285,12 @@ const ChatSummaryModal: React.FC<ChatSummaryModalProps> = ({
           {chatSummary && (
             <Button
               variant="primary"
-              onClick={() => {}}
+              onClick={guardarResumen}
+              disabled={saving}
               className="flex items-center gap-2"
             >
               <Bot className="w-4 h-4" />
-              Guardar Resumen
+              {saving ? 'Guardando...' : 'Guardar Resumen'}
             </Button>
           )}
         </div>

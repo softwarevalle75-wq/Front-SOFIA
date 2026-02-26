@@ -138,7 +138,7 @@ const ChatHistoryPage: React.FC = () => {
     const chatHistoryItem: ChatHistory = {
       id: chat.id,
       usuario: chat.estudiante?.nombre || 'Usuario',
-      fecha: new Date(chat.createdAt).toLocaleString('es-CO'),
+      fecha: chat.createdAt,
       momento: chat.temaLegal,
       mensaje: chat.primerMensaje || '',
       estado: chat.estado === 'leido' ? 'leído' : 'no leído',

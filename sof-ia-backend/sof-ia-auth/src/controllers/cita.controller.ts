@@ -4,6 +4,11 @@ import { citaService } from '../services/cita.service';
 import { auditoriaService } from '../services/auditoria.service';
 import { notificationService } from '../services/notification.service';
 import { EstadoCita, Modalidad, PrismaClient } from '@prisma/client';
+import {
+  buildConsultationSummary,
+  getStoredConsultationSummary,
+  segmentConsultationsByMarkers,
+} from '../utils/chatbot-consultation.utils';
 
 const prisma = new PrismaClient();
 
@@ -265,6 +270,60 @@ function extractTelegramChatId(externalId?: string | null): string | null {
   return chatId || null;
 }
 
+function isAgendarCommand(text: string): boolean {
+  const normalized = String(text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return normalized.includes('agendar') && normalized.includes('cita');
+}
+
+async function resolveChatbotConsultationSummary(conversationId?: string): Promise<string | undefined> {
+  const safeConversationId = String(conversationId || '').trim();
+  if (!safeConversationId) return undefined;
+
+  const contextRows = await prisma.$queryRawUnsafe<any[]>(
+    `
+    SELECT data
+    FROM "ConversationContext"
+    WHERE "conversationId" = $1
+    ORDER BY version DESC
+    LIMIT 1
+    `,
+    safeConversationId,
+  );
+
+  const contextData = contextRows[0]?.data && typeof contextRows[0].data === 'object'
+    ? contextRows[0].data as Record<string, unknown>
+    : undefined;
+
+  const messageRows = await prisma.$queryRawUnsafe<any[]>(
+    `
+    SELECT
+      id,
+      "direction" AS direction,
+      COALESCE(text, '') AS text,
+      "createdAt" AS "createdAt"
+    FROM "Message"
+    WHERE "conversationId" = $1
+    ORDER BY "createdAt" ASC
+    `,
+    safeConversationId,
+  );
+
+  if (!messageRows.length) return undefined;
+
+  const segments = segmentConsultationsByMarkers({
+    conversationId: safeConversationId,
+    messages: messageRows,
+  });
+  if (!segments.length) return undefined;
+
+  const selected = segments.find((segment) => isAgendarCommand(segment.endCommand || '')) || segments[0];
+  const stored = getStoredConsultationSummary(contextData, selected.id);
+  return stored || buildConsultationSummary(selected);
+}
+
 async function notifyTelegramCancellation(params: {
   chatId: string;
   nombreUsuario: string;
@@ -418,6 +477,7 @@ export const citaController = {
   async createFromChatbot(req: Request, res: Response) {
     try {
       const body = req.body || {};
+      const conversationId = String(body.conversationId || '').trim();
       const day = String(body.day || '').trim().toLowerCase();
       const mode = String(body.mode || '').trim().toUpperCase();
       const hour24 = Number(body.hour24);
@@ -448,6 +508,7 @@ export const citaController = {
 
       try {
         const admin = await prisma.usuario.findFirst({ where: { rol: 'ADMIN_CONSULTORIO' } });
+        const resumenConversacion = await resolveChatbotConsultationSummary(conversationId);
         await sendAppointmentNotifications({
           cita,
           adminCorreo: admin?.correo,
@@ -456,6 +517,7 @@ export const citaController = {
           usuarioNumeroDocumento: body.userDocumentNumber,
           usuarioCorreo: body.userEmail,
           usuarioTelefono: body.userPhone,
+          resumenConversacion,
         });
       } catch (notifError) {
         console.error('Error enviando correos de agendamiento chatbot:', notifError);

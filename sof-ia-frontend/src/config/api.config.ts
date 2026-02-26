@@ -51,8 +51,8 @@ export const API_CONFIG = {
     // ========== Conversaciones ==========
     CONVERSACIONES: {
       BASE: '/conversaciones',
-      BY_ID: (id: string) => `/conversaciones/${id}`,
-      MENSAJES: (id: string) => `/conversaciones/${id}/mensajes`,
+      BY_ID: (id: string) => `/conversaciones/${encodeURIComponent(id)}`,
+      MENSAJES: (id: string) => `/conversaciones/${encodeURIComponent(id)}/mensajes`,
     },
 
     // ========== Encuestas ==========
