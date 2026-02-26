@@ -22,8 +22,6 @@ export const DEFAULT_ADMIN = {
 // Configuración del Chatbot
 export const CHATBOT_CONFIG = {
   WHATSAPP_URL: 'https://web.whatsapp.com',
-  TELEGRAM_URL: 'https://t.me/ValleSoftwareBot',
-  WEBCHAT_TENANT_ID: 'tenant_ai_demo',
   BOT_URL: '#chatbot-placeholder', // Para cuando implementemos el chatbot real
   MESSAGE: 'Próximamente conectará al chatbot de WhatsApp. Actualmente muestra información administrativa.',
   DESCRIPTION: 'El acceso al chatbot estará disponible próximamente. Los estudiantes pueden acceder directamente a WhatsApp mientras tanto.'
