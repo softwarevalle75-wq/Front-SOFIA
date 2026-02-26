@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import {
   buildConsultationSummary,
+  extractConsultationContentMessages,
   getStoredConsultationSummary,
   segmentConsultationsByMarkers,
 } from '../utils/chatbot-consultation.utils';
@@ -305,7 +306,9 @@ export const conversacionController = {
           return res.status(404).json({ success: false, message: 'Consulta no encontrada dentro de la conversación' });
         }
 
-        const filteredMessages = selectedSegment.messages.map((item) => ({
+        const consultationMessages = extractConsultationContentMessages(selectedSegment.messages);
+
+        const filteredMessages = consultationMessages.map((item) => ({
           id: item.id,
           tipo: item.direction === 'OUT' ? 'ia' : 'usuario',
           contenido: item.text,
@@ -400,7 +403,9 @@ export const conversacionController = {
           return res.status(404).json({ success: false, message: 'Consulta no encontrada dentro de la conversación' });
         }
 
-        const filteredMessages = selectedSegment.messages.map((item) => ({
+        const consultationMessages = extractConsultationContentMessages(selectedSegment.messages);
+
+        const filteredMessages = consultationMessages.map((item) => ({
           id: item.id,
           tipo: item.direction === 'OUT' ? 'ia' : 'usuario',
           contenido: item.text,

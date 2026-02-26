@@ -69,6 +69,13 @@ function isInternalFlowMessage(text: string): boolean {
     || normalized.startsWith('reprogramar cita');
 }
 
+function isConsultationContentInbound(text: string): boolean {
+  const normalized = normalizeInput(text);
+  if (!normalized) return false;
+  if (isStartCommand(normalized) || isEndCommand(normalized)) return false;
+  return !isInternalFlowMessage(normalized);
+}
+
 export function segmentConsultationsByMarkers(input: {
   conversationId: string;
   messages: ChatbotMessageItem[];
@@ -171,10 +178,10 @@ export function pickFirstUserMessage(messages: ChatbotMessageItem[]): string {
 }
 
 export function buildConsultationSummary(segment: ChatbotConsultationSegment): string {
-  const userMessages = segment.messages
+  const userMessages = extractConsultationContentMessages(segment.messages)
     .filter((item) => isUserMessage(item))
     .map((item) => String(item.text || '').trim())
-    .filter((text) => text.length > 0 && !isInternalFlowMessage(text));
+    .filter((text) => text.length > 0);
 
   if (userMessages.length === 0) {
     return 'Aun no hay resumen generado para esta consulta.';
@@ -187,6 +194,18 @@ export function buildConsultationSummary(segment: ChatbotConsultationSegment): s
   if (!details) return compactFirst;
   const compactDetails = details.length > 220 ? `${details.slice(0, 217)}...` : details;
   return `${compactFirst}\n\nPuntos clave: ${compactDetails}`;
+}
+
+export function extractConsultationContentMessages(messages: ChatbotMessageItem[]): ChatbotMessageItem[] {
+  if (!Array.isArray(messages) || messages.length === 0) return [];
+
+  const firstContentIndex = messages.findIndex((item) => {
+    if (!isUserMessage(item)) return false;
+    return isConsultationContentInbound(String(item.text || ''));
+  });
+
+  if (firstContentIndex <= 0) return [...messages];
+  return messages.slice(firstContentIndex);
 }
 
 export function getStoredConsultationSummary(
