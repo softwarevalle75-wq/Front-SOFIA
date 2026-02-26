@@ -1,5 +1,3 @@
-import { apiService } from '@/services/api.service';
-import { API_CONFIG } from '@/config/api.config';
 import { CHATBOT_CONFIG } from '@/config/constants';
 
 interface WebchatSendMessageResponse {
@@ -36,21 +34,28 @@ function rotateExternalUserId(): string {
 }
 
 class WebchatService {
-  private readonly endpoint = `${API_CONFIG.ENDPOINTS.CONVERSACIONES.BASE}/webchat/message`;
+  private readonly endpoint = `${(import.meta.env.VITE_CHATBOT_WEB_API_URL || 'http://localhost:3060').replace(/\/$/, '')}/v1/chatbot/web/message`;
 
   async sendMessage(input: { text: string; displayName?: string }): Promise<string[]> {
-    const response = await apiService.post<WebchatSendMessageResponse>(this.endpoint, {
-      message: input.text,
-      displayName: input.displayName,
-      externalUserId: getStoredExternalUserId(),
-      tenantId: import.meta.env.VITE_WEBCHAT_TENANT_ID || CHATBOT_CONFIG.WEBCHAT_TENANT_ID,
+    const response = await fetch(this.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: input.text,
+        displayName: input.displayName,
+        externalUserId: getStoredExternalUserId(),
+        tenantId: import.meta.env.VITE_WEBCHAT_TENANT_ID || CHATBOT_CONFIG.WEBCHAT_TENANT_ID,
+      }),
     });
 
-    if (!response.success) {
-      throw new Error(response.message || 'No fue posible enviar el mensaje al chatbot.');
+    const payload = (await response.json()) as WebchatSendMessageResponse;
+    if (!response.ok || !payload.success) {
+      throw new Error(payload.message || 'No fue posible enviar el mensaje al chatbot.');
     }
 
-    return response.data?.botMessages || [];
+    return payload.data?.botMessages || [];
   }
 
   restartSession() {
