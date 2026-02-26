@@ -55,6 +55,10 @@ function isUserMessage(message: ChatbotMessageItem): boolean {
   return message.direction === 'IN';
 }
 
+function isBotMessage(message: ChatbotMessageItem): boolean {
+  return message.direction === 'OUT';
+}
+
 function isInternalFlowMessage(text: string): boolean {
   const normalized = normalizeInput(text);
   if (!normalized) return true;
@@ -74,6 +78,25 @@ function isConsultationContentInbound(text: string): boolean {
   if (!normalized) return false;
   if (isStartCommand(normalized) || isEndCommand(normalized)) return false;
   return !isInternalFlowMessage(normalized);
+}
+
+function isBotNoiseMessage(text: string): boolean {
+  const normalized = normalizeInput(text);
+  if (!normalized) return true;
+
+  if (normalized.includes('bienvenido') && normalized.includes('consultorio juridico')) return true;
+  if (normalized.includes('puedo orientarte de manera preliminar')) return true;
+  if (normalized.includes('escribe reset')) return true;
+  if (normalized.includes('si deseas agendar una cita')) return true;
+  if (normalized.includes('para finalizar la conversacion, escribe salir')) return true;
+
+  return false;
+}
+
+function compactLine(text: string, maxLength = 220): string {
+  const singleLine = text.replace(/\s+/g, ' ').trim();
+  if (singleLine.length <= maxLength) return singleLine;
+  return `${singleLine.slice(0, maxLength - 3)}...`;
 }
 
 export function segmentConsultationsByMarkers(input: {
@@ -178,22 +201,41 @@ export function pickFirstUserMessage(messages: ChatbotMessageItem[]): string {
 }
 
 export function buildConsultationSummary(segment: ChatbotConsultationSegment): string {
-  const userMessages = extractConsultationContentMessages(segment.messages)
+  const consultationMessages = extractConsultationContentMessages(segment.messages);
+
+  const userMessages = consultationMessages
     .filter((item) => isUserMessage(item))
     .map((item) => String(item.text || '').trim())
-    .filter((text) => text.length > 0);
+    .filter((text) => text.length > 0 && !isInternalFlowMessage(text));
 
-  if (userMessages.length === 0) {
+  const botMessages = consultationMessages
+    .filter((item) => isBotMessage(item))
+    .map((item) => String(item.text || '').trim())
+    .filter((text) => text.length > 0 && !isBotNoiseMessage(text));
+
+  if (userMessages.length === 0 && botMessages.length === 0) {
     return 'Aun no hay resumen generado para esta consulta.';
   }
 
-  const first = userMessages[0];
-  const details = userMessages.slice(1, 3).join(' | ');
-  const compactFirst = first.length > 320 ? `${first.slice(0, 317)}...` : first;
+  const userMain = userMessages[0] ? compactLine(userMessages[0], 260) : 'Sin detalle del usuario.';
+  const userDetails = userMessages.slice(1, 3).map((text) => compactLine(text, 160));
 
-  if (!details) return compactFirst;
-  const compactDetails = details.length > 220 ? `${details.slice(0, 217)}...` : details;
-  return `${compactFirst}\n\nPuntos clave: ${compactDetails}`;
+  const botKeyResponses = botMessages
+    .filter((text) => text.length >= 25)
+    .slice(0, 3)
+    .map((text) => `- ${compactLine(text, 220)}`);
+
+  const sections: string[] = [`Consulta del usuario: ${userMain}`];
+
+  if (userDetails.length > 0) {
+    sections.push(`Puntos clave del usuario: ${userDetails.join(' | ')}`);
+  }
+
+  if (botKeyResponses.length > 0) {
+    sections.push(`Respuesta de SOF-IA:\n${botKeyResponses.join('\n')}`);
+  }
+
+  return sections.join('\n\n');
 }
 
 export function extractConsultationContentMessages(messages: ChatbotMessageItem[]): ChatbotMessageItem[] {
