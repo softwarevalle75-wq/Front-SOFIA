@@ -3,6 +3,7 @@ import { Bot, Send, RotateCcw } from 'lucide-react';
 import { useTheme } from '@/components/layout/MainLayout';
 import Button from '@/components/common/Button';
 import loginBackground from '@/assets/logos/consul.png';
+import universityLogo from '@/assets/logos/university-logo-blanco.png';
 import { authService } from '@/services/auth.service';
 import { webchatService } from '@/services/webchat.service';
 
@@ -13,7 +14,14 @@ type WebchatMessage = {
   timestamp: string;
 };
 
-const quickPrompts = ['Hola', 'laboral', 'soporte', 'reset'];
+function buildWelcomeMessage(): WebchatMessage {
+  return {
+    id: 'welcome',
+    sender: 'bot',
+    text: 'Hola, soy SOF-IA. Escribe tu consulta juridica para iniciar.',
+    timestamp: new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }),
+  };
+}
 
 const WebChatPage: React.FC = () => {
   const { isDarkMode } = useTheme();
@@ -21,14 +29,7 @@ const WebChatPage: React.FC = () => {
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState('');
-  const [messages, setMessages] = useState<WebchatMessage[]>([
-    {
-      id: 'welcome',
-      sender: 'bot',
-      text: 'Hola, soy SOF-IA. Escribe tu consulta juridica para iniciar.',
-      timestamp: new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }),
-    },
-  ]);
+  const [messages, setMessages] = useState<WebchatMessage[]>([buildWelcomeMessage()]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -82,71 +83,83 @@ const WebChatPage: React.FC = () => {
     }
   };
 
-  return (
-    <div
-      className="relative min-h-[calc(100vh-9rem)] overflow-hidden rounded-2xl"
-      style={{
-        backgroundImage: `url(${loginBackground})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-      }}
-    >
-      <div className="absolute inset-0 bg-blue-900/65" />
+  const handleReset = async () => {
+    if (isSending) return;
 
-      <div className="relative z-10 flex h-full min-h-[calc(100vh-9rem)] flex-col p-3 sm:p-6">
+    setIsSending(true);
+    setError('');
+
+    try {
+      await webchatService.sendMessage({
+        text: 'reset',
+        displayName: user?.nombre || user?.email,
+      });
+    } catch {
+      // Si falla el reset remoto, de todas formas reiniciamos la sesion local del chat
+    } finally {
+      webchatService.restartSession();
+      setInput('');
+      setMessages([buildWelcomeMessage()]);
+      setIsSending(false);
+
+      setTimeout(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = 0;
+        }
+      }, 0);
+    }
+  };
+
+  return (
+    <div className="relative h-[calc(100vh-9rem)] overflow-hidden rounded-2xl bg-white">
+      <div className="relative z-10 flex h-full min-h-0 flex-col p-3 sm:p-6">
         <div
-          className={`mx-auto flex w-full max-w-5xl flex-1 flex-col overflow-hidden rounded-2xl border backdrop-blur-md ${
+          className={`mx-auto flex h-full min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-lg ${
             isDarkMode
-              ? 'border-white/20 bg-gray-900/35'
-              : 'border-white/30 bg-black/35'
+              ? 'border-[#C9A227]/35 bg-[#0E164E]/55'
+              : 'border-[#C9A227]/40 bg-[#0E164E]/50'
           }`}
+          style={{
+            backgroundImage: `linear-gradient(to bottom, rgba(14,22,78,0.84), rgba(14,22,78,0.82)), url(${loginBackground})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
         >
-          <div className="flex items-center justify-between border-b border-white/20 px-4 py-4 sm:px-6">
+          <div className="flex items-center justify-between border-b border-[#C9A227]/30 px-5 py-4 sm:px-6">
             <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/20">
-                <Bot className="h-6 w-6 text-white" />
+              <div className="hidden items-center sm:flex">
+                <img src={universityLogo} alt="Universitaria de Colombia" className="h-11 w-auto object-contain" />
+              </div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-[#C9A227]/40 bg-white/10">
+                <Bot className="h-5.5 w-5.5 text-[#FFCD00]" />
               </div>
               <div>
-                <h1 className="text-xl font-bold font-poppins text-white">Chatbot Web SOF-IA</h1>
-                <p className="text-sm font-opensans text-blue-100">Mismo flujo conversacional de Telegram</p>
+                <h1 className="text-xl font-bold font-poppins text-white">SOF-IA</h1>
               </div>
             </div>
             <Button
               variant="secondary"
-              size="sm"
-              onClick={() => handleSend('reset')}
-              className="border border-white/25 bg-white/10 text-white hover:bg-white/20"
+              size="md"
+              onClick={handleReset}
+              className="h-11 border border-[#C9A227]/45 bg-[#1A1F71]/70 text-[#FFCD00] hover:bg-[#222A8A]"
             >
               <RotateCcw className="h-4 w-4" />
               Reiniciar
             </Button>
           </div>
 
-          <div className="flex flex-wrap gap-2 border-b border-white/20 px-4 py-3 sm:px-6">
-            {quickPrompts.map((prompt) => (
-              <button
-                key={prompt}
-                onClick={() => handleSend(prompt)}
-                disabled={isSending}
-                className="rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-opensans text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {prompt}
-              </button>
-            ))}
-          </div>
-
-          <div ref={scrollContainerRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
+          <div ref={scrollContainerRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 sm:px-6">
             {messages.map((msg) => (
               <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[88%] rounded-2xl px-4 py-3 shadow-md sm:max-w-[75%] ${
+                  className={`max-w-[86%] rounded-xl px-4 py-3 shadow-md sm:max-w-[74%] ${
                     msg.sender === 'user'
-                      ? 'bg-indigo-600 text-white'
-                      : 'border border-white/20 bg-white/15 text-white backdrop-blur-sm'
+                      ? 'bg-[#2D35A5] text-white border border-[#C9A227]/35'
+                      : 'border border-white/20 bg-white/12 text-white backdrop-blur-sm'
                   }`}
                 >
-                  <p className="whitespace-pre-wrap text-sm font-opensans">{msg.text}</p>
-                  <p className={`mt-1 text-[11px] ${msg.sender === 'user' ? 'text-indigo-200' : 'text-blue-100/80'}`}>
+                  <p className="whitespace-pre-wrap text-base leading-relaxed font-opensans">{msg.text}</p>
+                  <p className={`mt-1.5 text-xs ${msg.sender === 'user' ? 'text-[#FFE58A]' : 'text-blue-100/80'}`}>
                     {msg.timestamp}
                   </p>
                 </div>
@@ -154,7 +167,7 @@ const WebChatPage: React.FC = () => {
             ))}
             {isSending && (
               <div className="flex justify-start">
-                <div className="rounded-2xl border border-white/20 bg-white/15 px-4 py-2 text-sm font-opensans text-blue-100">
+                <div className="rounded-xl border border-white/20 bg-white/12 px-4 py-2.5 text-base font-opensans text-blue-100">
                   SOF-IA esta escribiendo...
                 </div>
               </div>
@@ -167,7 +180,7 @@ const WebChatPage: React.FC = () => {
             </div>
           )}
 
-          <div className="border-t border-white/20 px-4 py-4 sm:px-6">
+          <div className="border-t border-[#C9A227]/25 px-5 py-4 sm:px-6">
             <div className="flex items-center gap-2">
               <input
                 value={input}
@@ -180,15 +193,15 @@ const WebChatPage: React.FC = () => {
                 }}
                 disabled={isSending}
                 placeholder="Escribe tu mensaje para el chatbot..."
-                className="h-11 flex-1 rounded-xl border border-white/30 bg-white/15 px-4 text-sm font-opensans text-white placeholder:text-blue-100/70 focus:border-blue-300 focus:outline-none"
+                className="h-12 flex-1 rounded-lg border border-white/30 bg-[#0B1342]/85 px-4 text-base font-opensans text-[#F8FAFF] caret-[#FFCD00] placeholder:text-blue-100/70 focus:border-[#C9A227]/70 focus:outline-none disabled:text-blue-100/70"
               />
               <Button
                 variant="primary"
                 onClick={() => void handleSend()}
                 disabled={!canSend}
-                className="h-11 px-4"
+                className="h-12 px-5 text-base bg-[#2D35A5] hover:bg-[#3D45B8] border border-[#C9A227]/45"
               >
-                <Send className="h-4 w-4" />
+                <Send className="h-5 w-5" />
                 Enviar
               </Button>
             </div>

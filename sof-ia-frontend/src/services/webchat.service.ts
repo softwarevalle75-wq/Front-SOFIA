@@ -18,13 +18,20 @@ interface WebchatSendMessageResponse {
   message?: string;
 }
 
+const EXTERNAL_USER_KEY = 'sofia-webchat-external-user-id';
+
 function getStoredExternalUserId(): string {
-  const key = 'sofia-webchat-external-user-id';
-  const existing = localStorage.getItem(key);
+  const existing = localStorage.getItem(EXTERNAL_USER_KEY);
   if (existing && existing.trim().length > 0) return existing;
 
   const generated = `admin-${crypto.randomUUID()}`;
-  localStorage.setItem(key, generated);
+  localStorage.setItem(EXTERNAL_USER_KEY, generated);
+  return generated;
+}
+
+function rotateExternalUserId(): string {
+  const generated = `admin-${crypto.randomUUID()}`;
+  localStorage.setItem(EXTERNAL_USER_KEY, generated);
   return generated;
 }
 
@@ -44,6 +51,10 @@ class WebchatService {
     }
 
     return response.data?.botMessages || [];
+  }
+
+  restartSession() {
+    rotateExternalUserId();
   }
 }
 
