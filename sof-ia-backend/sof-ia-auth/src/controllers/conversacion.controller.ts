@@ -5,6 +5,7 @@ import {
   buildConsultationSummary,
   extractConsultationContentMessages,
   getStoredConsultationSummary,
+  isConsultationDeleted,
   segmentConsultationsByMarkers,
 } from '../utils/chatbot-consultation.utils';
 
@@ -121,7 +122,9 @@ export const conversacionController = {
             messages,
           });
 
-          return segments.map((segment) => {
+          return segments
+            .filter((segment) => !isConsultationDeleted(row.contextData, segment.id))
+            .map((segment) => {
             const storedSummary = getStoredConsultationSummary(row.contextData, segment.id);
             return {
               id: segment.id,
@@ -140,7 +143,7 @@ export const conversacionController = {
                 documento: row.externalId || '',
               },
             };
-          });
+            });
         });
 
         let filteredConsultations = consultations;
@@ -302,7 +305,7 @@ export const conversacionController = {
           || segments.find((segment) => segment.id === `${conversationId}:${consultationId}`)
           || null;
 
-        if (!selectedSegment) {
+        if (!selectedSegment || isConsultationDeleted(conversation.contextData, selectedSegment.id)) {
           return res.status(404).json({ success: false, message: 'Consulta no encontrada dentro de la conversación' });
         }
 
@@ -399,7 +402,21 @@ export const conversacionController = {
           || segments.find((segment) => segment.id === `${conversationId}:${consultationId}`)
           || null;
 
-        if (!selectedSegment) {
+        const contextRows = await prisma.$queryRawUnsafe<any[]>(
+          `
+          SELECT data
+          FROM "ConversationContext"
+          WHERE "conversationId" = $1
+          ORDER BY version DESC
+          LIMIT 1
+          `,
+          conversationId,
+        );
+        const contextData = contextRows[0]?.data && typeof contextRows[0].data === 'object'
+          ? contextRows[0].data as Record<string, unknown>
+          : undefined;
+
+        if (!selectedSegment || isConsultationDeleted(contextData, selectedSegment.id)) {
           return res.status(404).json({ success: false, message: 'Consulta no encontrada dentro de la conversación' });
         }
 
@@ -580,5 +597,80 @@ export const conversacionController = {
       console.error('Error updating resumen:', error);
       res.status(500).json({ success: false, message: 'Error al actualizar resumen' });
     }
-  }
+  },
+
+  async eliminar(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { origen } = req.query;
+
+      if (origen === 'chatbot') {
+        const consultationId = String(id || '').trim();
+        const conversationId = consultationId.split(':')[0] || consultationId;
+
+        const latestContextRows = await prisma.$queryRawUnsafe<any[]>(
+          `
+          SELECT "tenantId", version, data
+          FROM "ConversationContext"
+          WHERE "conversationId" = $1
+          ORDER BY version DESC
+          LIMIT 1
+          `,
+          conversationId,
+        );
+
+        const latestContext = latestContextRows[0] || null;
+        if (!latestContext) {
+          return res.status(404).json({ success: false, message: 'No se encontró contexto para eliminar la consulta.' });
+        }
+
+        const currentData = (latestContext.data && typeof latestContext.data === 'object')
+          ? latestContext.data as Record<string, unknown>
+          : {};
+        const currentProfile = (currentData.profile && typeof currentData.profile === 'object')
+          ? currentData.profile as Record<string, unknown>
+          : {};
+        const deletedConsultations = (currentProfile.deletedConsultations && typeof currentProfile.deletedConsultations === 'object')
+          ? currentProfile.deletedConsultations as Record<string, unknown>
+          : {};
+
+        const nextData = {
+          ...currentData,
+          profile: {
+            ...currentProfile,
+            deletedConsultations: {
+              ...deletedConsultations,
+              [consultationId]: true,
+            },
+          },
+        };
+
+        await prisma.$executeRawUnsafe(
+          `
+          INSERT INTO "ConversationContext" (id, "tenantId", "conversationId", version, data)
+          VALUES ($1, $2, $3, $4, $5::jsonb)
+          `,
+          randomUUID(),
+          String(latestContext.tenantId),
+          conversationId,
+          Number(latestContext.version || 0) + 1,
+          JSON.stringify(nextData),
+        );
+
+        return res.json({
+          success: true,
+          data: {
+            id: consultationId,
+            eliminado: true,
+          },
+        });
+      }
+
+      await prisma.conversacion.delete({ where: { id } });
+      return res.json({ success: true, data: { id, eliminado: true } });
+    } catch (error) {
+      console.error('Error deleting conversacion:', error);
+      return res.status(500).json({ success: false, message: 'Error al eliminar conversación' });
+    }
+  },
 };

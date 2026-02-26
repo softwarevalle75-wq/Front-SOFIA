@@ -232,3 +232,21 @@ export function getStoredConsultationSummary(
 
   return null;
 }
+
+export function isConsultationDeleted(
+  contextData: Record<string, unknown> | null | undefined,
+  consultationId: string,
+): boolean {
+  if (!contextData || typeof contextData !== 'object') return false;
+
+  const profile = typeof contextData.profile === 'object' && contextData.profile !== null
+    ? contextData.profile as Record<string, unknown>
+    : undefined;
+
+  const deleted = typeof profile?.deletedConsultations === 'object' && profile.deletedConsultations !== null
+    ? profile.deletedConsultations as Record<string, unknown>
+    : undefined;
+
+  if (!deleted) return false;
+  return deleted[consultationId] === true;
+}

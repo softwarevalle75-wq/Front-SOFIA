@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, Download, Filter } from 'lucide-react';
+import { Eye, Download, Filter, Trash2 } from 'lucide-react';
 import Card from '@/components/common/Card';
 import SearchBar from '@/components/common/SearchBar';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -148,6 +148,28 @@ const ChatHistoryPage: React.FC = () => {
     setIsSummaryModalOpen(true);
   };
 
+  const handleDeleteConversation = async (chat: ConversacionAPI) => {
+    const userName = chat.estudiante?.nombre || 'Usuario';
+    const confirmed = window.confirm(`¿Eliminar esta consulta de ${userName}? Esta acción no se puede deshacer.`);
+    if (!confirmed) return;
+
+    try {
+      const response = await apiService.delete<{ success: boolean; message?: string }>(
+        `${API_CONFIG.ENDPOINTS.CONVERSACIONES.BY_ID(chat.id)}?origen=chatbot`,
+      );
+
+      if (!response.success) {
+        setErrorMessage(response.message || 'No fue posible eliminar la consulta.');
+        return;
+      }
+
+      setChatHistory((prev) => prev.filter((item) => item.id !== chat.id));
+      setFilteredHistory((prev) => prev.filter((item) => item.id !== chat.id));
+    } catch (_error) {
+      setErrorMessage('Error al eliminar la consulta. Intenta nuevamente.');
+    }
+  };
+
   const formatRelativeTime = (dateString: string): string => {
     const date = new Date(dateString);
     const now = new Date();
@@ -256,6 +278,17 @@ const ChatHistoryPage: React.FC = () => {
             title="Descargar chat"
           >
             <Download className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => handleDeleteConversation(chat)}
+            className={`p-2 rounded-lg transition-colors ${
+              isDarkMode
+                ? 'text-red-300 hover:bg-red-900/30'
+                : 'text-red-600 hover:bg-red-50'
+            }`}
+            title="Eliminar consulta"
+          >
+            <Trash2 className="w-4 h-4" />
           </button>
         </div>
       )

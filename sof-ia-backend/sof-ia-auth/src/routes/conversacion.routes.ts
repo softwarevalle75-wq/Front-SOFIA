@@ -10,5 +10,6 @@ router.post('/', conversacionController.create);
 router.post('/:id/mensajes', conversacionController.agregarMensaje);
 router.put('/:id/estado', conversacionController.actualizarEstado);
 router.put('/:id/resumen', conversacionController.actualizarResumen);
+router.delete('/:id', conversacionController.eliminar);
 
 export default router;
