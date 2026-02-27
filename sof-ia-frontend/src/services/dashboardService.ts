@@ -42,24 +42,41 @@ interface ConversacionesResponse {
   };
 }
 
+interface ChatbotConversacionesListResponse {
+  success: boolean;
+  data: Array<unknown>;
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 export const dashboardService = {
   async getDashboardStats(period: 'week' | 'month' | 'year' = 'month'): Promise<DashboardStats> {
-    const response = await apiService.get<DashboardResponse>(
-      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?periodo=${period}&origenCitas=chatbot`
-    );
+    const [response, chatbotConversations] = await Promise.all([
+      apiService.get<DashboardResponse>(
+        `${API_CONFIG.ENDPOINTS.STATS}/dashboard?periodo=${period}&origenCitas=sistema`
+      ),
+      apiService.get<ChatbotConversacionesListResponse>(
+        `${API_CONFIG.ENDPOINTS.CONVERSACIONES.BASE}?origen=chatbot&page=1&pageSize=1`
+      ),
+    ]);
 
     if (response.success && response.data) {
       const d = response.data;
+      const totalConsultations = Number(chatbotConversations?.pagination?.total ?? d.totalConsultations ?? 0);
       return {
         totalUsers: d.totalUsers,
         activeUsers: d.activeUsers,
-        totalConsultations: d.totalConsultations,
+        totalConsultations,
         pendingAppointments: d.pendingAppointments,
         cancelledAppointments: d.cancelledAppointments,
         totalRevenue: 0,
         averageConsultationDuration: 45,
-        consultationCount: d.totalConsultations,
-        appointmentCount: d.totalConsultations + d.pendingAppointments,
+        consultationCount: totalConsultations,
+        appointmentCount: totalConsultations + d.pendingAppointments,
         userCount: d.totalUsers,
         activityChange: d.activityChange,
         appointmentsChange: d.appointmentsChange,
@@ -99,7 +116,7 @@ export const dashboardService = {
 
   async getModalityDistribution(): Promise<Array<{ name: string; value: number; color: string }>> {
     const response = await apiService.get<DashboardResponse>(
-      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?origenCitas=chatbot`
+      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?origenCitas=sistema`
     );
 
     if (response.success && response.data?.modalityData) {

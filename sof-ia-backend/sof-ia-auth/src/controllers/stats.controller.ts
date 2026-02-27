@@ -72,14 +72,34 @@ export const statsController = {
       const chatbotPresencial = Number(chatbotAppointments.presencial || 0);
       const chatbotVirtual = Number(chatbotAppointments.virtual || 0);
       const chatbotConsultasRealizadas = Number(chatbotConsultas || 0);
-      const chatbotOnly = String(origenCitas || '').toLowerCase() === 'chatbot';
-      const totalCitasAjustado = chatbotOnly ? chatbotTotal : totalCitas + chatbotTotal;
-      const citasAgendadasAjustado = chatbotOnly ? chatbotAgendadas : citasAgendadas + chatbotAgendadas;
-      const citasCanceladasAjustado = chatbotOnly ? chatbotCanceladas : citasCanceladas + chatbotCanceladas;
+      const source = String(origenCitas || '').toLowerCase();
+      const chatbotOnly = source === 'chatbot';
+      const sistemaOnly = source === 'sistema';
+
+      const totalCitasAjustado = chatbotOnly
+        ? chatbotTotal
+        : sistemaOnly
+          ? totalCitas
+          : totalCitas + chatbotTotal;
+
+      const citasAgendadasAjustado = chatbotOnly
+        ? chatbotAgendadas
+        : sistemaOnly
+          ? citasAgendadas
+          : citasAgendadas + chatbotAgendadas;
+
+      const citasCanceladasAjustado = chatbotOnly
+        ? chatbotCanceladas
+        : sistemaOnly
+          ? citasCanceladas
+          : citasCanceladas + chatbotCanceladas;
+
       const citasCompletadasAjustado = chatbotOnly ? 0 : citasCompletadas;
       const consultasRealizadasAjustado = chatbotOnly
         ? chatbotConsultasRealizadas
-        : citasCompletadas + chatbotConsultasRealizadas;
+        : sistemaOnly
+          ? citasCompletadas
+          : citasCompletadas + chatbotConsultasRealizadas;
 
       const todasCalificaciones = chatbotOnly
         ? (await fetchChatbotSurveyEntries()).map((x) => x.calificacion)
@@ -118,8 +138,24 @@ export const statsController = {
           retentionRate: totalCitasAjustado > 0 ? (citasCompletadasAjustado / totalCitasAjustado) * 100 : 0,
           newUsersThisMonth: estudiantesNuevos,
           modalityData: [
-            { name: 'Presencial', value: citasPresencialAgendadas + chatbotPresencial, color: '#1A1F71' },
-            { name: 'Virtual', value: citasVirtualAgendadas + chatbotVirtual, color: '#FFCD00' }
+            {
+              name: 'Presencial',
+              value: chatbotOnly
+                ? chatbotPresencial
+                : sistemaOnly
+                  ? citasPresencialAgendadas
+                  : citasPresencialAgendadas + chatbotPresencial,
+              color: '#1A1F71',
+            },
+            {
+              name: 'Virtual',
+              value: chatbotOnly
+                ? chatbotVirtual
+                : sistemaOnly
+                  ? citasVirtualAgendadas
+                  : citasVirtualAgendadas + chatbotVirtual,
+              color: '#FFCD00',
+            }
           ],
           usageData,
           growthData,
