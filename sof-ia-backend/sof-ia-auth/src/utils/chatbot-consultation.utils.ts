@@ -255,6 +255,21 @@ function extractQuestions(botMessages: string[]): string[] {
   return uniqueStrings(cleaned).slice(0, 3);
 }
 
+function extractInlineEnumeratedItems(text: string, maxItems = 4): string[] {
+  const source = String(text || '').replace(/\n+/g, ' ').trim();
+  if (!source) return [];
+
+  const tokens = source.split(/\s(?=\d+[).:-]\s+)/g);
+  const items = tokens
+    .map((part) => part.trim())
+    .filter((part) => /^\d+[).:-]\s+/.test(part))
+    .map((part) => part.replace(/^\d+[).:-]\s*/, '').trim())
+    .map((part) => toSummaryPhrase(part, 200))
+    .filter((part) => part.length > 0);
+
+  return uniqueStrings(items).slice(0, maxItems);
+}
+
 function extractOrientationBullets(botMessages: string[]): string[] {
   const candidates = botMessages
     .flatMap((text) => text.split(/\n+/))
@@ -267,6 +282,37 @@ function extractOrientationBullets(botMessages: string[]): string[] {
     .map((line) => toSummaryPhrase(line, 180));
 
   return uniqueStrings(cleaned).slice(0, 4);
+}
+
+function extractSolutionSteps(
+  botMessages: string[],
+  preferredGuidance: string | undefined,
+  caseType: 'familia' | 'laboral' | 'penal' | 'general',
+): string[] {
+  const fromBullets = extractOrientationBullets(botMessages);
+  if (fromBullets.length > 0) return fromBullets;
+
+  const fromEnumerated = extractInlineEnumeratedItems(preferredGuidance || '', 4)
+    .map((item) => item.replace(/\?$/, ''))
+    .filter((item) => item.length > 0);
+  if (fromEnumerated.length > 0) return fromEnumerated;
+
+  return orientationByCase(caseType);
+}
+
+function extractActionQuestions(
+  botMessages: string[],
+  preferredGuidance: string | undefined,
+  caseType: 'familia' | 'laboral' | 'penal' | 'general',
+): string[] {
+  const fromBot = extractQuestions(botMessages);
+  if (fromBot.length > 0) return fromBot;
+
+  const fromEnumerated = extractInlineEnumeratedItems(preferredGuidance || '', 3)
+    .map((item) => (item.endsWith('?') ? item : `${item}?`));
+  if (fromEnumerated.length > 0) return fromEnumerated;
+
+  return fallbackQuestionsByCase(caseType);
 }
 
 export function segmentConsultationsByMarkers(input: {
@@ -397,8 +443,8 @@ export function buildConsultationSummary(segment: ChatbotConsultationSegment): s
   const botMain = pickBestBotGuidance(botMessages);
 
   const caseType = pickCaseType(userMain);
-  const orientationBullets = orientationByCase(caseType);
-  const questions = fallbackQuestionsByCase(caseType);
+  const solutionSteps = extractSolutionSteps(botMessages, botMain, caseType);
+  const questions = extractActionQuestions(botMessages, botMain, caseType);
 
   const analysisContext = userDetails.length > 0
     ? `\nContexto adicional: ${userDetails.join('; ')}.`
@@ -416,8 +462,8 @@ export function buildConsultationSummary(segment: ChatbotConsultationSegment): s
     '🟢 Análisis del Caso',
     `El usuario consultó: "${userMain}".${analysisContext}${orientationIntro}`,
     '',
-    '📂 Orientación Inicial',
-    ...orientationBullets.map((item) => `• ${item}`),
+    '📂 Ruta de Solución Propuesta',
+    ...solutionSteps.map((item) => `• ${item}`),
     '',
     '❓ Preguntas Clave para Avanzar',
     ...questions.map((item, index) => `${index + 1}. ${item}`),
