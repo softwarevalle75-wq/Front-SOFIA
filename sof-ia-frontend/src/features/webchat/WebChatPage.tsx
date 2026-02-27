@@ -173,7 +173,7 @@ const WebChatPage: React.FC<WebChatPageProps> = ({ publicMode = false }) => {
             </Button>
           </div>
 
-          <div ref={scrollContainerRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 sm:px-6">
+          <div ref={scrollContainerRef} className="webchat-scroll min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 sm:px-6">
             {messages.map((msg) => (
               <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div
