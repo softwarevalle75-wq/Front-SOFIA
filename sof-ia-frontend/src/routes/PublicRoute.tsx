@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { authService } from '@/services/auth.service';
 
@@ -7,7 +7,37 @@ import { authService } from '@/services/auth.service';
  * Redirige al dashboard si ya hay sesión activa
  */
 const PublicRoute: React.FC = () => {
-  const isAuthenticated = authService.isAuthenticated();
+  const [isChecking, setIsChecking] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const verifySession = async () => {
+      if (!authService.isAuthenticated()) {
+        if (!active) return;
+        setIsAuthenticated(false);
+        setIsChecking(false);
+        return;
+      }
+
+      const validSession = await authService.verifyToken();
+      if (!active) return;
+
+      setIsAuthenticated(validSession);
+      setIsChecking(false);
+    };
+
+    void verifySession();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (isChecking) {
+    return <div className="min-h-screen flex items-center justify-center text-gray-600">Verificando sesion...</div>;
+  }
 
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
