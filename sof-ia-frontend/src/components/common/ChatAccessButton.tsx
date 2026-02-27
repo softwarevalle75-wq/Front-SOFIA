@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { MessageCircle, ExternalLink, Send, X } from 'lucide-react';
+import { MessageCircle, ExternalLink, X, Globe } from 'lucide-react';
 import Button from '@/components/common/Button';
 import Modal from '@/components/common/Modal';
 import { CHATBOT_CONFIG } from '@/config/constants';
@@ -7,6 +7,83 @@ import { CHATBOT_CONFIG } from '@/config/constants';
 interface ChatAccessButtonProps {
   className?: string;
 }
+
+const TelegramIcon: React.FC<{ className?: string }> = ({ className = 'h-6 w-6' }) => (
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={className}>
+    <circle cx="12" cy="12" r="10" fill="currentColor" />
+    <path
+      d="M17.9 7.78L15.95 17.06C15.81 17.72 15.45 17.88 14.89 17.56L11.88 15.34L10.42 16.74C10.25 16.91 10.11 17.05 9.79 17.05L10 14.02L15.51 9.04C15.75 8.82 15.46 8.69 15.14 8.9L8.33 13.19L5.4 12.27C4.76 12.07 4.75 11.63 5.53 11.32L16.94 6.92C17.47 6.73 17.94 7.04 17.9 7.78Z"
+      fill="white"
+    />
+  </svg>
+);
+
+interface ChannelCardProps {
+  title: string;
+  description: string;
+  badge: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  styleType: 'web' | 'telegram';
+}
+
+const ChannelCard: React.FC<ChannelCardProps> = ({
+  title,
+  description,
+  badge,
+  icon,
+  onClick,
+  styleType,
+}) => {
+  const styleByType = {
+    web: {
+      container:
+        'border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-sky-50 hover:border-indigo-400 hover:shadow-indigo-100 dark:border-indigo-800/70 dark:from-indigo-950/50 dark:via-gray-900 dark:to-slate-900 dark:hover:border-indigo-500',
+      iconWrap: 'bg-indigo-600 text-white dark:bg-indigo-500',
+      badge:
+        'bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-900/70 dark:text-indigo-300 dark:ring-indigo-700/60',
+      action:
+        'text-indigo-700 group-hover:text-indigo-800 dark:text-indigo-300 dark:group-hover:text-indigo-200',
+    },
+    telegram: {
+      container:
+        'border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 hover:border-sky-400 hover:shadow-sky-100 dark:border-sky-800/70 dark:from-sky-950/50 dark:via-gray-900 dark:to-slate-900 dark:hover:border-sky-500',
+      iconWrap: 'bg-sky-500 text-white dark:bg-sky-500',
+      badge:
+        'bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-900/70 dark:text-sky-300 dark:ring-sky-700/60',
+      action:
+        'text-sky-700 group-hover:text-sky-800 dark:text-sky-300 dark:group-hover:text-sky-200',
+    },
+  } as const;
+
+  const styles = styleByType[styleType];
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group w-full rounded-xl border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 ${styles.container}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className={`mt-0.5 flex h-11 w-11 items-center justify-center rounded-lg shadow-sm ${styles.iconWrap}`}>
+            {icon}
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</p>
+            <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-300">{description}</p>
+          </div>
+        </div>
+        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${styles.badge}`}>{badge}</span>
+      </div>
+
+      <div className={`mt-4 flex items-center gap-1 text-xs font-semibold ${styles.action}`}>
+        <span>Abrir canal</span>
+        <ExternalLink className="h-3.5 w-3.5" />
+      </div>
+    </button>
+  );
+};
 
 const ChatAccessButton: React.FC<ChatAccessButtonProps> = ({ className = '' }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -38,40 +115,41 @@ const ChatAccessButton: React.FC<ChatAccessButtonProps> = ({ className = '' }) =
       <Button
         variant="primary"
         onClick={() => setIsModalOpen(true)}
-        className={`bg-green-600 hover:bg-green-700 text-white ${className}`}
+        className={`group rounded-xl border border-indigo-500/30 bg-gradient-to-r from-indigo-600 via-indigo-600 to-sky-500 text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:from-indigo-700 hover:via-indigo-700 hover:to-sky-600 hover:shadow-lg dark:border-sky-400/30 dark:from-indigo-600 dark:via-indigo-600 dark:to-sky-500 ${className}`}
       >
-        <MessageCircle className="h-4 w-4" />
-        Ir al Chat
-        <ExternalLink className="h-4 w-4" />
+        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/20">
+          <MessageCircle className="h-3.5 w-3.5" />
+        </span>
+        <span className="font-semibold tracking-wide">Ir al Chat</span>
+        <ExternalLink className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
       </Button>
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Selecciona un canal" footer={modalFooter} size="md">
-        <div className="space-y-3">
-          <p className="text-sm text-gray-600 dark:text-gray-300">Elige como quieres continuar la conversacion con SOF-IA.</p>
+        <div className="space-y-4">
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900/70">
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Elige donde continuar la conversacion</p>
+            <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
+              Puedes seguir por el chatbot web o abrir directamente el bot de Telegram.
+            </p>
+          </div>
 
-          <Button
-            variant="primary"
+          <ChannelCard
+            title="Chatbot web"
+            description="Canal integrado para atender consultas desde navegador con experiencia guiada."
+            badge="Recomendado"
+            icon={<Globe className="h-5 w-5" />}
             onClick={() => openExternalLink(publicChatbotUrl)}
-            className="w-full justify-between bg-indigo-600 hover:bg-indigo-700"
-          >
-            <span className="flex items-center gap-2">
-              <MessageCircle className="h-4 w-4" />
-              Ir al chatbot web
-            </span>
-            <ExternalLink className="h-4 w-4" />
-          </Button>
+            styleType="web"
+          />
 
-          <Button
-            variant="secondary"
+          <ChannelCard
+            title="Telegram"
+            description="Abre el bot oficial de Telegram para continuar la conversacion desde tu app movil o escritorio."
+            badge="Oficial"
+            icon={<TelegramIcon className="h-5 w-5" />}
             onClick={() => openExternalLink(telegramBotUrl)}
-            className="w-full justify-between"
-          >
-            <span className="flex items-center gap-2">
-              <Send className="h-4 w-4" />
-              Ir a Telegram
-            </span>
-            <ExternalLink className="h-4 w-4" />
-          </Button>
+            styleType="telegram"
+          />
         </div>
       </Modal>
     </>
