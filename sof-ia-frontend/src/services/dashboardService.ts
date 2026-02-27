@@ -16,6 +16,7 @@ interface DashboardResponse {
     retentionRate: number;
     newUsersThisMonth: number;
     modalityData: Array<{ name: string; value: number; color: string }>;
+    caseTypeData: Array<{ type: string; label: string; count: number }>;
     usageData: Array<{ date: string; value: number }>;
     growthData: Array<{ name: string; value: number }>;
     satisfactionData: Array<{ name: string; rating: number }>;
@@ -136,6 +137,18 @@ export const dashboardService = {
     }
 
     throw new Error('Error al obtener datos de satisfacción');
+  },
+
+  async getCaseTypeDistribution(period: 'week' | 'month' | 'year' = 'month'): Promise<Array<{ type: string; label: string; count: number }>> {
+    const response = await apiService.get<DashboardResponse>(
+      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?periodo=${period}&origenCitas=chatbot`
+    );
+
+    if (response.success && response.data?.caseTypeData) {
+      return response.data.caseTypeData;
+    }
+
+    throw new Error('Error al obtener distribución por tipo de caso');
   },
 
   async getSatisfaccionStats(): Promise<{

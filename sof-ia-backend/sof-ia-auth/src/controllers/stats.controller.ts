@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import {
   ChatbotMessageItem,
+  getStoredConsultationSummary,
   isConsultationDeleted,
   segmentConsultationsByMarkers,
 } from '../utils/chatbot-consultation.utils';
@@ -14,6 +15,26 @@ type ChatbotAppointmentAggregate = {
   canceladas: number;
   presencial: number;
   virtual: number;
+};
+
+type ChatbotCaseTypeKey =
+  | 'familia-alimentos'
+  | 'laboral'
+  | 'penal'
+  | 'civil'
+  | 'constitucional'
+  | 'administrativo'
+  | 'conciliacion'
+  | 'transito'
+  | 'disciplinario'
+  | 'responsabilidad-fiscal'
+  | 'comercial'
+  | 'general';
+
+type ChatbotCaseTypeStat = {
+  type: ChatbotCaseTypeKey;
+  label: string;
+  count: number;
 };
 
 export const statsController = {
@@ -46,7 +67,8 @@ export const statsController = {
         totalConversaciones,
         metricasMensuales,
         chatbotAppointments,
-        chatbotConsultas
+        chatbotConsultas,
+        caseTypeData,
       ] = await Promise.all([
         prisma.estudiante.count(),
         prisma.estudiante.count({ where: { estado: 'ACTIVO' } }),
@@ -64,6 +86,7 @@ export const statsController = {
         }),
         fetchChatbotAppointmentStats(),
         fetchChatbotConsultationCount(),
+        fetchChatbotCaseTypeStats(),
       ]);
 
       const chatbotTotal = Number(chatbotAppointments.total || 0);
@@ -157,6 +180,7 @@ export const statsController = {
               color: '#FFCD00',
             }
           ],
+          caseTypeData,
           usageData,
           growthData,
           satisfactionData
@@ -258,6 +282,151 @@ export const statsController = {
     }
   }
 };
+
+function normalizeCaseText(value: string): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function inferTipoCaso(payload: {
+  temaLegal?: string | null;
+  primerMensaje?: string | null;
+  resumen?: string | null;
+}): ChatbotCaseTypeKey {
+  const text = normalizeCaseText(`${payload.temaLegal || ''} ${payload.primerMensaje || ''} ${payload.resumen || ''}`);
+  const matches = (terms: string[]) => terms.some((term) => text.includes(term));
+
+  if (matches(['despido', 'despidieron', 'sin justa causa', 'laboral', 'empleador', 'salario', 'liquidacion', 'contrato de trabajo', 'prestaciones', 'indemnizacion'])) return 'laboral';
+  if (matches(['lesion', 'denuncia', 'amenaza', 'agresion', 'penal', 'hurto', 'fiscalia', 'violacion', 'abuso sexual', 'homicidio'])) return 'penal';
+  if (matches(['familia-alimentos', 'cuota alimentaria', 'alimentos', 'custodia', 'patria potestad', 'comisaria de familia', 'divorcio', 'familia', 'esposa', 'esposo'])) return 'familia-alimentos';
+  if (matches(['tutela', 'derecho de peticion', 'habeas data', 'derecho fundamental', 'constitucional'])) return 'constitucional';
+  if (matches(['transito', 'comparendo', 'choque', 'accidente de transito', 'impugnar comparendo', 'multa de transito'])) return 'transito';
+  if (matches(['responsabilidad fiscal', 'hallazgo fiscal', 'contraloria', 'proceso fiscal', 'detrimento patrimonial'])) return 'responsabilidad-fiscal';
+  if (matches(['disciplinario', 'procuraduria', 'falta disciplinaria', 'investigacion disciplinaria'])) return 'disciplinario';
+  if (matches(['conciliacion', 'conciliar', 'centro de conciliacion'])) return 'conciliacion';
+  if (matches(['administrativo', 'entidad publica', 'acto administrativo', 'recurso de reposicion', 'recurso de apelacion'])) return 'administrativo';
+  if (matches(['sociedad', 'empresa', 'comercial', 'factura', 'camara de comercio', 'contrato mercantil'])) return 'comercial';
+  if (matches(['civil', 'arrendamiento', 'deuda', 'incumplimiento', 'obligacion'])) return 'civil';
+  return 'general';
+}
+
+function getCaseTypeLabel(type: ChatbotCaseTypeKey): string {
+  switch (type) {
+    case 'familia-alimentos':
+      return 'Familia-alimentos';
+    case 'laboral':
+      return 'Derecho Laboral';
+    case 'penal':
+      return 'Derecho Penal';
+    case 'civil':
+      return 'Derecho Civil';
+    case 'constitucional':
+      return 'Constitucional';
+    case 'administrativo':
+      return 'Derecho Administrativo';
+    case 'conciliacion':
+      return 'Conciliación';
+    case 'transito':
+      return 'Tránsito';
+    case 'disciplinario':
+      return 'Disciplinario';
+    case 'responsabilidad-fiscal':
+      return 'Responsabilidad fiscal';
+    case 'comercial':
+      return 'Derecho Comercial';
+    default:
+      return 'General';
+  }
+}
+
+async function fetchChatbotCaseTypeStats(): Promise<ChatbotCaseTypeStat[]> {
+  const conversationRows = await prisma.$queryRawUnsafe<Array<{
+    id: string;
+    contextData: Record<string, unknown> | null;
+  }>>(
+    `
+    SELECT
+      c.id,
+      cc.data AS "contextData"
+    FROM "Conversation" c
+    LEFT JOIN LATERAL (
+      SELECT ctx.data
+      FROM "ConversationContext" ctx
+      WHERE ctx."conversationId" = c.id
+      ORDER BY ctx.version DESC
+      LIMIT 1
+    ) cc ON true
+    `,
+  );
+
+  const conversationIds = conversationRows.map((row) => row.id).filter(Boolean);
+  const emptyTypes: ChatbotCaseTypeKey[] = [
+    'familia-alimentos', 'laboral', 'penal', 'civil', 'constitucional', 'administrativo',
+    'conciliacion', 'transito', 'disciplinario', 'responsabilidad-fiscal', 'comercial', 'general',
+  ];
+
+  if (conversationIds.length === 0) {
+    return emptyTypes.map((type) => ({ type, label: getCaseTypeLabel(type), count: 0 }));
+  }
+
+  const placeholders = conversationIds.map((_id, index) => `$${index + 1}`).join(', ');
+  const messageRows = await prisma.$queryRawUnsafe<Array<{
+    id: string;
+    conversationId: string;
+    direction: 'IN' | 'OUT';
+    text: string;
+    createdAt: Date | string;
+  }>>(
+    `
+    SELECT
+      m.id,
+      m."conversationId" AS "conversationId",
+      m."direction" AS "direction",
+      COALESCE(m.text, '') AS text,
+      m."createdAt" AS "createdAt"
+    FROM "Message" m
+    WHERE m."conversationId" IN (${placeholders})
+    ORDER BY m."createdAt" ASC
+    `,
+    ...conversationIds,
+  );
+
+  const messagesByConversation = new Map<string, ChatbotMessageItem[]>();
+  for (const message of messageRows) {
+    const list = messagesByConversation.get(message.conversationId) || [];
+    list.push(message);
+    messagesByConversation.set(message.conversationId, list);
+  }
+
+  const counter = new Map<ChatbotCaseTypeKey, number>();
+  for (const type of emptyTypes) counter.set(type, 0);
+
+  for (const row of conversationRows) {
+    const messages = messagesByConversation.get(row.id) || [];
+    const segments = segmentConsultationsByMarkers({
+      conversationId: row.id,
+      messages,
+    });
+
+    for (const segment of segments) {
+      if (isConsultationDeleted(row.contextData, segment.id)) continue;
+      const summary = getStoredConsultationSummary(row.contextData, segment.id);
+      const type = inferTipoCaso({
+        temaLegal: segment.firstUserMessage,
+        primerMensaje: segment.firstUserMessage,
+        resumen: summary,
+      });
+      counter.set(type, (counter.get(type) || 0) + 1);
+    }
+  }
+
+  return emptyTypes
+    .map((type) => ({ type, label: getCaseTypeLabel(type), count: counter.get(type) || 0 }))
+    .sort((a, b) => b.count - a.count);
+}
 
 async function getUsageData(periodo: string) {
   const now = new Date();

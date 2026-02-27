@@ -34,6 +34,7 @@ const DashboardPage: React.FC = () => {
   const [growthData, setGrowthData] = useState<Array<{ name: string; value: number }>>([]);
   const [modalityData, setModalityData] = useState<Array<{ name: string; value: number; color: string }>>([]);
   const [satisfactionData, setSatisfactionData] = useState<Array<{ name: string; rating: number }>>([]);
+  const [caseTypeData, setCaseTypeData] = useState<Array<{ type: string; label: string; count: number }>>([]);
 
   // Estados para gestión de citas
   const [isManualCitaModalOpen, setIsManualCitaModalOpen] = useState(false);
@@ -46,6 +47,7 @@ const DashboardPage: React.FC = () => {
   // Estado/alertas sin datos demo
   const [systemAlerts] = useState<SystemAlert[]>([]);
   const modalityTotal = modalityData.reduce((acc, item) => acc + item.value, 0);
+  const caseTypeTotal = caseTypeData.reduce((acc, item) => acc + item.count, 0);
   const systemStatus: SystemStatus = {
     operativo: !dashboardError,
     tiempoRespuesta: 0,
@@ -59,12 +61,13 @@ const DashboardPage: React.FC = () => {
     setLoadingStats(true);
     setDashboardError('');
     try {
-      const [dashboardStats, chartStats, growthStats, modalityStats, satisfactionStats] = await Promise.all([
+      const [dashboardStats, chartStats, growthStats, modalityStats, satisfactionStats, caseTypeStats] = await Promise.all([
         dashboardService.getDashboardStats(selectedPeriod),
         dashboardService.getChartData(selectedPeriod),
         dashboardService.getGrowthData(selectedPeriod),
         dashboardService.getModalityDistribution(),
-        dashboardService.getSatisfactionData()
+        dashboardService.getSatisfactionData(),
+        dashboardService.getCaseTypeDistribution(selectedPeriod),
       ]);
       
       setStats(dashboardStats);
@@ -78,6 +81,7 @@ const DashboardPage: React.FC = () => {
       setGrowthData(growthStats);
       setModalityData(modalityStats);
       setSatisfactionData(satisfactionStats);
+      setCaseTypeData(caseTypeStats);
       
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -104,6 +108,7 @@ const DashboardPage: React.FC = () => {
       setGrowthData([]);
       setModalityData([]);
       setSatisfactionData([]);
+      setCaseTypeData([]);
     } finally {
       setLoadingStats(false);
     }
@@ -498,7 +503,7 @@ const DashboardPage: React.FC = () => {
       </div>
 
       {/* Gráficos adicionales */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
         {/* Gráfico de distribución por modalidad */}
         <Card title="Distribución por Modalidad" subtitle="Presencial vs Virtual">
           <div className="space-y-4">
@@ -534,6 +539,35 @@ const DashboardPage: React.FC = () => {
                 ))}
               </div>
             </div>
+          </div>
+        </Card>
+
+        <Card title="Casos del Chatbot por Tipo" subtitle="Consultas atendidas por categoría">
+          <div className="space-y-4">
+            {caseTypeData.length === 0 ? (
+              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                Aún no hay consultas clasificadas.
+              </p>
+            ) : (
+              caseTypeData.map((item) => (
+                <div key={item.type} className="space-y-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                      {item.label}
+                    </span>
+                    <span className={`text-sm font-bold ${isDarkMode ? 'text-indigo-300' : 'text-indigo-700'}`}>
+                      {item.count}
+                    </span>
+                  </div>
+                  <div className={`w-full rounded-full h-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                    <div
+                      className="h-2 rounded-full bg-indigo-500"
+                      style={{ width: `${caseTypeTotal > 0 ? (item.count / caseTypeTotal) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </Card>
 
