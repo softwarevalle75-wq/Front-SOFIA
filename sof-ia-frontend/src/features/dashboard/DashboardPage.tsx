@@ -65,8 +65,8 @@ const DashboardPage: React.FC = () => {
         dashboardService.getDashboardStats(selectedPeriod),
         dashboardService.getChartData(selectedPeriod),
         dashboardService.getGrowthData(selectedPeriod),
-        dashboardService.getModalityDistribution(),
-        dashboardService.getSatisfactionData(),
+        dashboardService.getModalityDistribution(selectedPeriod),
+        dashboardService.getSatisfactionData(selectedPeriod),
         dashboardService.getCaseTypeDistribution(selectedPeriod),
       ]);
       
@@ -222,6 +222,19 @@ const DashboardPage: React.FC = () => {
       });
     }
   };
+
+  const getModalityColor = (item: { name: string; color: string }, index: number): string => {
+    if (!isDarkMode) return item.color;
+    const name = item.name.toLowerCase();
+    if (name.includes('presencial')) return '#22c55e';
+    if (name.includes('virtual')) return '#38bdf8';
+    return ['#a78bfa', '#f59e0b', '#f43f5e'][index % 3];
+  };
+
+  const ratingsConDatos = satisfactionData.filter((item) => Number(item.rating) > 0);
+  const promedioSatisfaccion = ratingsConDatos.length > 0
+    ? ratingsConDatos.reduce((acc, item) => acc + Number(item.rating), 0) / ratingsConDatos.length
+    : (Number.isFinite(stats?.satisfactionRate) ? Number(stats?.satisfactionRate ?? 0) : 0);
 
   if (loadingStats || !stats) {
     return (
@@ -512,7 +525,7 @@ const DashboardPage: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <div 
                     className="w-4 h-4 rounded-full" 
-                    style={{ backgroundColor: isDarkMode ? '#ffffff' : item.color }}
+                    style={{ backgroundColor: getModalityColor(item, index) }}
                   />
                   <span className={`font-medium font-poppins ${isDarkMode ? 'text-white' : 'text-indigo-600'}`}>{item.name}</span>
                 </div>
@@ -532,7 +545,7 @@ const DashboardPage: React.FC = () => {
                     key={index}
                     className="h-full"
                     style={{
-                      backgroundColor: isDarkMode ? '#ffffff' : item.color,
+                      backgroundColor: getModalityColor(item, index),
                       width: `${modalityTotal > 0 ? (item.value / modalityTotal) * 100 : 0}%`
                     }}
                   />
@@ -577,25 +590,25 @@ const DashboardPage: React.FC = () => {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Award className="w-5 h-5 text-university-yellow" />
-                <span className="font-medium text-university-indigo font-poppins">Promedio General</span>
+                <span className={`font-medium font-poppins ${isDarkMode ? 'text-indigo-300' : 'text-university-indigo'}`}>Promedio General</span>
               </div>
-              <div className="text-2xl font-bold text-university-indigo font-poppins">
-                {(satisfactionData.reduce((acc, item) => acc + item.rating, 0) / satisfactionData.length).toFixed(1)}
-                <span className="text-sm text-gray-500 font-opensans">/5.0</span>
+              <div className={`text-2xl font-bold font-poppins ${isDarkMode ? 'text-indigo-200' : 'text-university-indigo'}`}>
+                {promedioSatisfaccion.toFixed(1)}
+                <span className={`text-sm font-opensans ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>/5.0</span>
               </div>
             </div>
             
             {/* Barras de calificación */}
             {satisfactionData.map((item, index) => (
               <div key={index} className="flex items-center gap-3">
-                <span className="w-8 text-sm font-medium text-gray-600 font-opensans">{item.name}</span>
-                <div className="flex-1 bg-gray-200 rounded-full h-2">
+                <span className={`w-8 text-sm font-medium font-opensans ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{item.name}</span>
+                <div className={`flex-1 rounded-full h-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
                   <div 
                     className="bg-university-yellow h-2 rounded-full transition-all duration-300"
                     style={{ width: `${(item.rating / 5) * 100}%` }}
                   />
                 </div>
-                <span className="w-8 text-sm font-medium text-university-indigo font-poppins text-right">
+                <span className={`w-8 text-sm font-medium font-poppins text-right ${isDarkMode ? 'text-indigo-300' : 'text-university-indigo'}`}>
                   {item.rating}
                 </span>
               </div>

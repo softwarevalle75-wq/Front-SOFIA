@@ -115,9 +115,9 @@ export const dashboardService = {
     throw new Error('Error al obtener datos de crecimiento');
   },
 
-  async getModalityDistribution(): Promise<Array<{ name: string; value: number; color: string }>> {
+  async getModalityDistribution(period: 'week' | 'month' | 'year' = 'month'): Promise<Array<{ name: string; value: number; color: string }>> {
     const response = await apiService.get<DashboardResponse>(
-      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?origenCitas=sistema`
+      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?periodo=${period}&origenCitas=sistema`
     );
 
     if (response.success && response.data?.modalityData) {
@@ -127,9 +127,9 @@ export const dashboardService = {
     throw new Error('Error al obtener distribución por modalidad');
   },
 
-  async getSatisfactionData(): Promise<Array<{ name: string; rating: number }>> {
+  async getSatisfactionData(period: 'week' | 'month' | 'year' = 'month'): Promise<Array<{ name: string; rating: number }>> {
     const response = await apiService.get<DashboardResponse>(
-      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?origenCitas=chatbot`
+      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?periodo=${period}&origenCitas=chatbot`
     );
 
     if (response.success && response.data?.satisfactionData) {

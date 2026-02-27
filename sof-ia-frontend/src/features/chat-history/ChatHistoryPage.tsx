@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, Download, Filter, Trash2, AlertTriangle } from 'lucide-react';
+import { Eye, Download, Trash2, AlertTriangle } from 'lucide-react';
 import Card from '@/components/common/Card';
 import SearchBar from '@/components/common/SearchBar';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -47,11 +47,10 @@ const ChatHistoryPage: React.FC = () => {
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   const [chatToDelete, setChatToDelete] = useState<ConversacionAPI | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [mostrarTodo, setMostrarTodo] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [pagination, setPagination] = useState<PaginationInfo>({
     page: 1,
-    pageSize: 500,
+    pageSize: 10,
     total: 0,
     totalPages: 0
   });
@@ -61,7 +60,6 @@ const ChatHistoryPage: React.FC = () => {
     options?: {
       search?: string;
       filters?: ChatFiltersType;
-      mostrarTodo?: boolean;
     }
   ) => {
     setLoading(true);
@@ -69,12 +67,11 @@ const ChatHistoryPage: React.FC = () => {
     try {
       const activeSearch = options?.search ?? searchQuery;
       const activeFilters = options?.filters ?? filters;
-      const activeMostrarTodo = options?.mostrarTodo ?? mostrarTodo;
 
       const params = new URLSearchParams();
       params.append('origen', 'chatbot');
       params.append('page', page.toString());
-      params.append('pageSize', activeMostrarTodo ? '1000' : pagination.pageSize.toString());
+      params.append('pageSize', pagination.pageSize.toString());
       
       if (activeSearch) params.append('search', activeSearch);
       if (activeFilters.estado) params.append('estado', activeFilters.estado);
@@ -119,12 +116,6 @@ const ChatHistoryPage: React.FC = () => {
     const emptyFilters: ChatFiltersType = {};
     setFilters(emptyFilters);
     loadConversaciones(1, { filters: emptyFilters });
-  };
-
-  const handleToggleVerTodo = () => {
-    const nextMostrarTodo = !mostrarTodo;
-    setMostrarTodo(nextMostrarTodo);
-    loadConversaciones(1, { mostrarTodo: nextMostrarTodo });
   };
 
   const handleViewSummary = (chat: ConversacionAPI) => {
@@ -316,18 +307,6 @@ const ChatHistoryPage: React.FC = () => {
         />
       </Card>
 
-      <div className="flex justify-end mb-2">
-        <Button
-          variant={mostrarTodo ? 'primary' : 'secondary'}
-          size="sm"
-          onClick={handleToggleVerTodo}
-          className="flex items-center gap-1"
-        >
-          <Filter className="w-4 h-4" />
-          {mostrarTodo ? `Ocultar (${chatHistory.length})` : `Ver todo (${chatHistory.length})`}
-        </Button>
-      </div>
-
       <Card>
         {errorMessage && (
           <div className={`mb-4 rounded-lg border px-4 py-3 text-sm font-opensans ${
@@ -343,10 +322,11 @@ const ChatHistoryPage: React.FC = () => {
           data={chatHistory}
           loading={loading}
           emptyMessage="No se encontraron conversaciones con los filtros aplicados"
-          pageSize={mostrarTodo ? Math.max(1, chatHistory.length) : pagination.pageSize}
-          currentPage={1}
+          pageSize={pagination.pageSize}
+          currentPage={pagination.page}
           totalItems={pagination.total}
           onPageChange={(page) => loadConversaciones(page)}
+          serverSidePagination
         />
       </Card>
 

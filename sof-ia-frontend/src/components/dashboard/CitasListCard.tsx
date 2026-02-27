@@ -27,6 +27,8 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
   const [citas, setCitas] = useState<ManualCita[]>([]);
   const [loadingCitas, setLoadingCitas] = useState(false);
   const [filtroEstado, setFiltroEstado] = useState<'todas' | 'agendada' | 'cancelada' | 'completada'>('todas');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 5;
 
   useEffect(() => {
     cargarCitas();
@@ -147,6 +149,20 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
     return cita.estado === filtroEstado;
   });
 
+  const totalItems = citasFiltradas.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+  const paginatedCitas = citasFiltradas.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filtroEstado, refreshKey]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   return (
     <div id="citas-list" className={`rounded-lg shadow-md border p-6 transition-colors duration-300 ${
       isDarkMode 
@@ -266,7 +282,7 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
         </div>
       ) : (
         <div className="space-y-2">
-          {citasFiltradas.map(cita => (
+          {paginatedCitas.map(cita => (
             <div 
               key={cita.id}
               className={`flex items-center justify-between p-3 rounded-lg border ${
@@ -334,6 +350,43 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
               </div>
             </div>
           ))}
+
+          {totalItems > PAGE_SIZE && (
+            <div className="mt-4 flex items-center justify-between">
+              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                Mostrando {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, totalItems)} de {totalItems} citas
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className={`px-3 py-1 text-sm rounded border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDarkMode
+                      ? 'border-indigo-500 text-indigo-300 hover:bg-indigo-600/20'
+                      : 'border-indigo-300 text-indigo-700 hover:bg-indigo-50'
+                  }`}
+                >
+                  Anterior
+                </button>
+                <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Página {currentPage} de {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage >= totalPages}
+                  className={`px-3 py-1 text-sm rounded border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDarkMode
+                      ? 'border-indigo-500 text-indigo-300 hover:bg-indigo-600/20'
+                      : 'border-indigo-300 text-indigo-700 hover:bg-indigo-50'
+                  }`}
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
