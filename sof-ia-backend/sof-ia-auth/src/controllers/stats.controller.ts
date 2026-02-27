@@ -1,5 +1,10 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import {
+  ChatbotMessageItem,
+  isConsultationDeleted,
+  segmentConsultationsByMarkers,
+} from '../utils/chatbot-consultation.utils';
 
 const prisma = new PrismaClient();
 
@@ -58,32 +63,7 @@ export const statsController = {
           ]
         }),
         fetchChatbotAppointmentStats(),
-        prisma.$queryRawUnsafe<Array<{ total: number }>>(
-          `
-          SELECT COALESCE(SUM(COALESCE(x.max_consultas, x.fallback_consulta)), 0)::int AS total
-          FROM (
-            SELECT
-              c.id,
-              MAX(
-                CASE
-                  WHEN NULLIF(COALESCE(ctx.data -> 'profile' ->> 'consultasFinalizadas', ''), '') IS NOT NULL
-                    THEN NULLIF(COALESCE(ctx.data -> 'profile' ->> 'consultasFinalizadas', ''), '')::int
-                  ELSE NULL
-                END
-              ) AS max_consultas,
-              MAX(
-                CASE
-                  WHEN NULLIF(COALESCE(ctx.data -> 'profile' ->> 'lastLaboralQuery', ''), '') IS NOT NULL
-                    THEN 1
-                  ELSE 0
-                END
-              ) AS fallback_consulta
-            FROM "Conversation" c
-            JOIN "ConversationContext" ctx ON ctx."conversationId" = c.id
-            GROUP BY c.id
-          ) x
-          `,
-        )
+        fetchChatbotConsultationCount(),
       ]);
 
       const chatbotTotal = Number(chatbotAppointments.total || 0);
@@ -91,7 +71,7 @@ export const statsController = {
       const chatbotCanceladas = Number(chatbotAppointments.canceladas || 0);
       const chatbotPresencial = Number(chatbotAppointments.presencial || 0);
       const chatbotVirtual = Number(chatbotAppointments.virtual || 0);
-      const chatbotConsultasRealizadas = Number(chatbotConsultas[0]?.total || 0);
+      const chatbotConsultasRealizadas = Number(chatbotConsultas || 0);
       const chatbotOnly = String(origenCitas || '').toLowerCase() === 'chatbot';
       const totalCitasAjustado = chatbotOnly ? chatbotTotal : totalCitas + chatbotTotal;
       const citasAgendadasAjustado = chatbotOnly ? chatbotAgendadas : citasAgendadas + chatbotAgendadas;
@@ -321,6 +301,72 @@ async function getGrowthData(periodo: string) {
   }
 
   return data;
+}
+
+async function fetchChatbotConsultationCount(): Promise<number> {
+  const conversationRows = await prisma.$queryRawUnsafe<Array<{
+    id: string;
+    contextData: Record<string, unknown> | null;
+  }>>(
+    `
+    SELECT
+      c.id,
+      cc.data AS "contextData"
+    FROM "Conversation" c
+    LEFT JOIN LATERAL (
+      SELECT ctx.data
+      FROM "ConversationContext" ctx
+      WHERE ctx."conversationId" = c.id
+      ORDER BY ctx.version DESC
+      LIMIT 1
+    ) cc ON true
+    `,
+  );
+
+  const conversationIds = conversationRows.map((row) => row.id).filter(Boolean);
+  if (conversationIds.length === 0) return 0;
+
+  const placeholders = conversationIds.map((_id, index) => `$${index + 1}`).join(', ');
+  const messageRows = await prisma.$queryRawUnsafe<Array<{
+    id: string;
+    conversationId: string;
+    direction: 'IN' | 'OUT';
+    text: string;
+    createdAt: Date | string;
+  }>>(
+    `
+    SELECT
+      m.id,
+      m."conversationId" AS "conversationId",
+      m."direction" AS "direction",
+      COALESCE(m.text, '') AS text,
+      m."createdAt" AS "createdAt"
+    FROM "Message" m
+    WHERE m."conversationId" IN (${placeholders})
+    ORDER BY m."createdAt" ASC
+    `,
+    ...conversationIds,
+  );
+
+  const messagesByConversation = new Map<string, ChatbotMessageItem[]>();
+  for (const message of messageRows) {
+    const list = messagesByConversation.get(message.conversationId) || [];
+    list.push(message);
+    messagesByConversation.set(message.conversationId, list);
+  }
+
+  let total = 0;
+  for (const row of conversationRows) {
+    const messages = messagesByConversation.get(row.id) || [];
+    const segments = segmentConsultationsByMarkers({
+      conversationId: row.id,
+      messages,
+    });
+
+    total += segments.filter((segment) => !isConsultationDeleted(row.contextData, segment.id)).length;
+  }
+
+  return total;
 }
 
 type ChatbotStoredAppointment = {

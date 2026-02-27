@@ -45,7 +45,7 @@ interface ConversacionesResponse {
 export const dashboardService = {
   async getDashboardStats(period: 'week' | 'month' | 'year' = 'month'): Promise<DashboardStats> {
     const response = await apiService.get<DashboardResponse>(
-      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?periodo=${period}`
+      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?periodo=${period}&origenCitas=chatbot`
     );
 
     if (response.success && response.data) {
@@ -75,7 +75,7 @@ export const dashboardService = {
 
   async getChartData(period: 'week' | 'month' | 'year' = 'month'): Promise<Array<{ date: string; value: number }>> {
     const response = await apiService.get<DashboardResponse>(
-      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?periodo=${period}`
+      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?periodo=${period}&origenCitas=chatbot`
     );
 
     if (response.success && response.data?.usageData) {
@@ -99,7 +99,7 @@ export const dashboardService = {
 
   async getModalityDistribution(): Promise<Array<{ name: string; value: number; color: string }>> {
     const response = await apiService.get<DashboardResponse>(
-      `${API_CONFIG.ENDPOINTS.STATS}/dashboard`
+      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?origenCitas=chatbot`
     );
 
     if (response.success && response.data?.modalityData) {
@@ -111,7 +111,7 @@ export const dashboardService = {
 
   async getSatisfactionData(): Promise<Array<{ name: string; rating: number }>> {
     const response = await apiService.get<DashboardResponse>(
-      `${API_CONFIG.ENDPOINTS.STATS}/dashboard`
+      `${API_CONFIG.ENDPOINTS.STATS}/dashboard?origenCitas=chatbot`
     );
 
     if (response.success && response.data?.satisfactionData) {
