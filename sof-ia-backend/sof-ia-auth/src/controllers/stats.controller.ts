@@ -715,7 +715,7 @@ async function fetchChatbotSurveyEntries(): Promise<ChatbotSurveyEntry[]> {
 }
 
 async function getSatisfactionData(chatbotOnly = false) {
-  const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun'];
+  const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   const data = [];
   const chatbotEntries = chatbotOnly ? await fetchChatbotSurveyEntries() : [];
 
@@ -744,7 +744,7 @@ async function getSatisfactionData(chatbotOnly = false) {
       : 0;
 
     data.push({
-      name: months[i],
+      name: months[fecha.getMonth()],
       rating,
     });
   }
