@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, Download, Filter, Trash2 } from 'lucide-react';
+import { Eye, Download, Filter, Trash2, AlertTriangle } from 'lucide-react';
 import Card from '@/components/common/Card';
 import SearchBar from '@/components/common/SearchBar';
 import StatusBadge from '@/components/common/StatusBadge';
 import Table, { TableColumn } from '@/components/common/Table';
 import Button from '@/components/common/Button';
+import Modal from '@/components/common/Modal';
 import ChatFilters from '@/components/chat/ChatFilters';
 import ChatSummaryModal from '@/components/chat/ChatSummaryModal';
 import { ChatHistory, ChatFilters as ChatFiltersType } from '@/types';
@@ -44,6 +45,8 @@ const ChatHistoryPage: React.FC = () => {
   const [filters, setFilters] = useState<ChatFiltersType>({});
   const [selectedChat, setSelectedChat] = useState<ChatHistory | undefined>(undefined);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [chatToDelete, setChatToDelete] = useState<ConversacionAPI | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [mostrarTodo, setMostrarTodo] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [pagination, setPagination] = useState<PaginationInfo>({
@@ -139,13 +142,16 @@ const ChatHistoryPage: React.FC = () => {
   };
 
   const handleDeleteConversation = async (chat: ConversacionAPI) => {
-    const userName = chat.estudiante?.nombre || 'Usuario';
-    const confirmed = window.confirm(`¿Eliminar esta consulta de ${userName}? Esta acción no se puede deshacer.`);
-    if (!confirmed) return;
+    setChatToDelete(chat);
+  };
+
+  const confirmDeleteConversation = async () => {
+    if (!chatToDelete) return;
+    setIsDeleting(true);
 
     try {
       const response = await apiService.delete<{ success: boolean; message?: string }>(
-        `${API_CONFIG.ENDPOINTS.CONVERSACIONES.BY_ID(chat.id)}?origen=chatbot`,
+        `${API_CONFIG.ENDPOINTS.CONVERSACIONES.BY_ID(chatToDelete.id)}?origen=chatbot`,
       );
 
       if (!response.success) {
@@ -153,9 +159,12 @@ const ChatHistoryPage: React.FC = () => {
         return;
       }
 
-      setChatHistory((prev) => prev.filter((item) => item.id !== chat.id));
+      setChatHistory((prev) => prev.filter((item) => item.id !== chatToDelete.id));
+      setChatToDelete(null);
     } catch (_error) {
       setErrorMessage('Error al eliminar la consulta. Intenta nuevamente.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -346,6 +355,47 @@ const ChatHistoryPage: React.FC = () => {
         onClose={() => setIsSummaryModalOpen(false)}
         chatHistory={selectedChat}
       />
+
+      <Modal
+        isOpen={Boolean(chatToDelete)}
+        onClose={() => !isDeleting && setChatToDelete(null)}
+        title="Confirmar eliminación"
+        size="sm"
+        closeOnOverlayClick={!isDeleting}
+        footer={(
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setChatToDelete(null)}
+              disabled={isDeleting}
+            >
+              Conservar consulta
+            </Button>
+            <Button
+              variant="danger"
+              onClick={confirmDeleteConversation}
+              loading={isDeleting}
+              disabled={isDeleting}
+            >
+              Eliminar consulta
+            </Button>
+          </>
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <div className={`mt-0.5 rounded-full p-2 ${isDarkMode ? 'bg-red-900/30' : 'bg-red-100'}`}>
+            <AlertTriangle className={`w-5 h-5 ${isDarkMode ? 'text-red-300' : 'text-red-600'}`} />
+          </div>
+          <div className="space-y-2">
+            <p className={isDarkMode ? 'text-gray-100' : 'text-gray-900'}>
+              Vas a eliminar la consulta de <span className="font-semibold">{chatToDelete?.estudiante?.nombre || 'Usuario'}</span>.
+            </p>
+            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              Esta acción es permanente y no se puede deshacer.
+            </p>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
