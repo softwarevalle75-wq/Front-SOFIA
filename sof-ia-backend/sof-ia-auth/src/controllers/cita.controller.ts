@@ -41,10 +41,11 @@ function toNextWeekdayDate(day?: string): Date {
   return next;
 }
 
-function hourToLabel(hour24?: number): string {
+function hourToLabel(hour24?: number, minute?: number): string {
   if (typeof hour24 !== 'number' || Number.isNaN(hour24)) return '09:00';
   const h = Math.max(0, Math.min(23, Math.floor(hour24)));
-  return `${String(h).padStart(2, '0')}:00`;
+  const m = minute === 30 ? 30 : 0;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 function hourLabelToNumber(hora: string): number {
@@ -52,6 +53,13 @@ function hourLabelToNumber(hora: string): number {
   if (!match) return 9;
   const hh = Number(match[1]);
   return Number.isFinite(hh) ? hh : 9;
+}
+
+function hourLabelToMinute(hora: string): number {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(hora || '').trim());
+  if (!match) return 0;
+  const mm = Number(match[2]);
+  return mm === 30 ? 30 : 0;
 }
 
 function formatDateKey(date: Date): string {
@@ -103,23 +111,27 @@ function extractChatbotAppointmentRef(citaId: string): {
   updatedAt?: string;
   day?: string;
   hour24?: number;
+  minute?: number;
   mode?: 'presencial' | 'virtual';
 } {
   if (!citaId.startsWith('chatbot-')) return {};
   const raw = citaId.slice('chatbot-'.length);
   const parts = raw.split(':');
-  if (parts.length < 5) return {};
+  if (parts.length < 6) return {};
 
   const updatedAt = `${parts[1]}:${parts[2]}`;
   const day = String(parts[3] || '').toLowerCase();
   const hour24 = Number(parts[4]);
-  const modeRaw = String(parts[5] || '').toLowerCase();
+  const hasMinuteInId = parts.length >= 7;
+  const minute = hasMinuteInId ? Number(parts[5]) : undefined;
+  const modeRaw = String(hasMinuteInId ? parts[6] : parts[5] || '').toLowerCase();
   const mode = modeRaw === 'presencial' ? 'presencial' : modeRaw === 'virtual' ? 'virtual' : undefined;
 
   return {
     updatedAt: Number.isNaN(Date.parse(updatedAt)) ? undefined : updatedAt,
     day: WEEKDAY_INDEX[day] ? day : undefined,
     hour24: Number.isFinite(hour24) ? hour24 : undefined,
+    minute: minute === 0 || minute === 30 ? minute : undefined,
     mode,
   };
 }
@@ -128,6 +140,7 @@ type ChatbotStoredAppointment = {
   mode: 'presencial' | 'virtual';
   day: string;
   hour24: number;
+  minute: 0 | 30;
   status: 'agendada' | 'cancelada';
   updatedAt: string;
   user?: {
@@ -171,17 +184,20 @@ function parseChatbotAppointments(profile: any): ChatbotStoredAppointment[] {
       const day = String(item?.day || '').toLowerCase();
       const status = String(item?.status || 'agendada').toLowerCase();
       const hour24 = typeof item?.hour24 === 'number' ? item.hour24 : Number.NaN;
+      const minuteRaw = typeof item?.minute === 'number' ? item.minute : 0;
       const updatedAt = typeof item?.updatedAt === 'string' ? item.updatedAt : new Date().toISOString();
 
       const isValidMode = mode === 'presencial' || mode === 'virtual';
       const isValidDay = WEEKDAY_INDEX[day] !== undefined;
       const isValidHour = Number.isFinite(hour24) && hour24 >= 0 && hour24 <= 23;
-      if (!isValidMode || !isValidDay || !isValidHour) return null;
+      const isValidMinute = minuteRaw === 0 || minuteRaw === 30;
+      if (!isValidMode || !isValidDay || !isValidHour || !isValidMinute) return null;
 
       return {
         mode,
         day,
         hour24,
+        minute: minuteRaw as 0 | 30,
         status: status === 'cancelada' ? 'cancelada' : 'agendada',
         updatedAt,
         user: typeof item?.user === 'object' && item.user !== null ? item.user : undefined,
@@ -191,7 +207,7 @@ function parseChatbotAppointments(profile: any): ChatbotStoredAppointment[] {
 
   const dedup = new Map<string, ChatbotStoredAppointment>();
   for (const item of parsed) {
-    const key = `${item.day}-${item.hour24}-${item.mode}-${item.status}-${item.updatedAt}`;
+    const key = `${item.day}-${item.hour24}-${item.minute}-${item.mode}-${item.status}-${item.updatedAt}`;
     if (!dedup.has(key)) dedup.set(key, item);
   }
 
@@ -201,7 +217,7 @@ function parseChatbotAppointments(profile: any): ChatbotStoredAppointment[] {
 }
 
 function buildChatbotAppointmentId(conversationId: string, appointment: ChatbotStoredAppointment): string {
-  return `chatbot-${conversationId}:${appointment.updatedAt}:${appointment.day}:${appointment.hour24}:${appointment.mode}`;
+  return `chatbot-${conversationId}:${appointment.updatedAt}:${appointment.day}:${appointment.hour24}:${appointment.minute}:${appointment.mode}`;
 }
 
 async function getChatbotAppointments(): Promise<ChatbotAppointmentItem[]> {
@@ -238,7 +254,7 @@ async function getChatbotAppointments(): Promise<ChatbotAppointmentItem[]> {
           id,
           estudianteId: row.contactId || null,
           fecha: toNextWeekdayDate(appointment.day),
-          hora: hourToLabel(appointment.hour24),
+          hora: hourToLabel(appointment.hour24, appointment.minute),
           modalidad: appointment.mode === 'presencial' ? 'PRESENCIAL' : 'VIRTUAL',
           motivo: 'Cita agendada desde chatbot',
           estado: appointment.status === 'cancelada' ? 'CANCELADA' : 'AGENDADA',
@@ -481,6 +497,7 @@ export const citaController = {
       const day = String(body.day || '').trim().toLowerCase();
       const mode = String(body.mode || '').trim().toUpperCase();
       const hour24 = Number(body.hour24);
+      const minute = Number(body.minute ?? 0);
 
       if (!WEEKDAY_INDEX[day]) {
         return res.status(400).json({ success: false, message: 'day inválido. Usa lunes a viernes.' });
@@ -491,9 +508,12 @@ export const citaController = {
       if (!Number.isFinite(hour24) || hour24 < 0 || hour24 > 23) {
         return res.status(400).json({ success: false, message: 'hour24 inválido.' });
       }
+      if (minute !== 0 && minute !== 30) {
+        return res.status(400).json({ success: false, message: 'minute inválido. Usa 0 o 30.' });
+      }
 
       const fecha = toNextWeekdayDateKey(day);
-      const hora = hourToLabel(hour24);
+      const hora = hourToLabel(hour24, minute);
       const cita = await citaService.create({
         fecha,
         hora,
@@ -533,6 +553,7 @@ export const citaController = {
           fecha,
           day,
           hour24: hourLabelToNumber(cita.hora),
+          minute: hourLabelToMinute(cita.hora),
           hora: cita.hora,
           mode: String(cita.modalidad).toLowerCase(),
         },
@@ -545,6 +566,8 @@ export const citaController = {
           INVALID_HOUR: 400,
           SLOT_NOT_AVAILABLE: 409,
           NO_ELIGIBLE_STUDENTS: 409,
+          DAILY_CAP_REACHED: 409,
+          MEET_LINK_FAILED: 502,
         };
         return res.status(statusByCode[error.code] || 400).json({ success: false, code: error.code, message: error.message });
       }
@@ -583,6 +606,7 @@ export const citaController = {
           citaId: cita.id,
           day: Object.keys(WEEKDAY_INDEX).find((k) => WEEKDAY_INDEX[k] === cita.fecha.getDay()) || '',
           hour24: hourLabelToNumber(cita.hora),
+          minute: hourLabelToMinute(cita.hora),
           mode: String(cita.modalidad).toLowerCase(),
         },
       });
@@ -597,6 +621,7 @@ export const citaController = {
       const citaId = String(req.body?.citaId || '').trim();
       const day = String(req.body?.day || '').trim().toLowerCase();
       const hour24 = Number(req.body?.hour24);
+      const minute = Number(req.body?.minute ?? 0);
 
       if (!citaId) {
         return res.status(400).json({ success: false, message: 'citaId es obligatorio.' });
@@ -607,9 +632,12 @@ export const citaController = {
       if (!Number.isFinite(hour24) || hour24 < 0 || hour24 > 23) {
         return res.status(400).json({ success: false, message: 'hour24 inválido.' });
       }
+      if (minute !== 0 && minute !== 30) {
+        return res.status(400).json({ success: false, message: 'minute inválido. Usa 0 o 30.' });
+      }
 
       const fecha = toNextWeekdayDateKey(day);
-      const hora = hourToLabel(hour24);
+      const hora = hourToLabel(hour24, minute);
       const cita = await citaService.reprogramar(citaId, fecha, hora);
 
       try {
@@ -639,6 +667,7 @@ export const citaController = {
           fecha,
           day,
           hour24: hourLabelToNumber(cita.hora),
+          minute: hourLabelToMinute(cita.hora),
           hora: cita.hora,
           mode: String(cita.modalidad).toLowerCase(),
         },
@@ -650,7 +679,10 @@ export const citaController = {
           INVALID_DATE: 400,
           INVALID_HOUR: 400,
           SLOT_NOT_AVAILABLE: 409,
+          NO_ELIGIBLE_STUDENTS: 409,
+          DAILY_CAP_REACHED: 409,
           NOT_FOUND: 404,
+          MEET_LINK_FAILED: 502,
         };
         return res.status(statusByCode[error.code] || 400).json({ success: false, code: error.code, message: error.message });
       }
@@ -728,6 +760,8 @@ export const citaController = {
           INVALID_HOUR: 400,
           SLOT_NOT_AVAILABLE: 409,
           NO_ELIGIBLE_STUDENTS: 409,
+          DAILY_CAP_REACHED: 409,
+          MEET_LINK_FAILED: 502,
         };
         return res.status(statusByCode[error.code] || 400).json({ success: false, message: error.message });
       }
@@ -852,6 +886,7 @@ export const citaController = {
           if (appointmentRef.updatedAt && item.updatedAt !== appointmentRef.updatedAt) return false;
           if (appointmentRef.day && item.day !== appointmentRef.day) return false;
           if (typeof appointmentRef.hour24 === 'number' && item.hour24 !== appointmentRef.hour24) return false;
+          if (typeof appointmentRef.minute === 'number' && item.minute !== appointmentRef.minute) return false;
           if (appointmentRef.mode && item.mode !== appointmentRef.mode) return false;
           return true;
         }) || appointments.find((item) => item.status !== 'cancelada') || appointments[0];
@@ -867,6 +902,7 @@ export const citaController = {
           const sameRecord = item.updatedAt === appointment.updatedAt
             && item.day === appointment.day
             && item.hour24 === appointment.hour24
+            && item.minute === appointment.minute
             && item.mode === appointment.mode;
           if (!sameRecord) return item;
           return {
@@ -896,6 +932,7 @@ export const citaController = {
               ...(item.updatedAt === appointment.updatedAt
                 && item.day === appointment.day
                 && item.hour24 === appointment.hour24
+                && item.minute === appointment.minute
                 && item.mode === appointment.mode
                 ? { cancelReason: motivo || (item as any).cancelReason || 'No especificado' }
                 : {}),
@@ -934,7 +971,7 @@ export const citaController = {
           const citaChatbot = {
             id,
             fecha: toNextWeekdayDate(appointment.day),
-            hora: hourToLabel(appointment.hour24),
+            hora: hourToLabel(appointment.hour24, appointment.minute),
             modalidad: String(appointment.mode || '').toLowerCase() === 'presencial' ? 'PRESENCIAL' : 'VIRTUAL',
             motivo: motivo || (appointment as any).reason || 'Cancelada desde panel administrativo',
             estado: 'CANCELADA',
@@ -966,7 +1003,7 @@ export const citaController = {
               chatId: telegramChatId,
               nombreUsuario: appointmentUser.fullName || chatbotInfo.displayName || 'Usuario chatbot',
               fecha: toNextWeekdayDate(appointment.day),
-              hora: hourToLabel(appointment.hour24),
+              hora: hourToLabel(appointment.hour24, appointment.minute),
               modalidad: appointment.mode || 'virtual',
               motivo,
             });
@@ -980,7 +1017,7 @@ export const citaController = {
           data: {
             id,
             fecha: toNextWeekdayDate(appointment.day),
-            hora: hourToLabel(appointment.hour24),
+            hora: hourToLabel(appointment.hour24, appointment.minute),
             modalidad: String(appointment.mode || '').toLowerCase() === 'presencial' ? 'PRESENCIAL' : 'VIRTUAL',
             estudianteId: chatbotInfo.contactId || null,
             estudiante: {
@@ -1094,7 +1131,10 @@ export const citaController = {
           INVALID_DATE: 400,
           INVALID_HOUR: 400,
           SLOT_NOT_AVAILABLE: 409,
+          NO_ELIGIBLE_STUDENTS: 409,
+          DAILY_CAP_REACHED: 409,
           NOT_FOUND: 404,
+          MEET_LINK_FAILED: 502,
         };
         return res.status(statusByCode[error.code] || 400).json({ success: false, message: error.message });
       }

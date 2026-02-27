@@ -23,6 +23,11 @@ interface LoginResponse {
 }
 
 class AuthService {
+  clearSession(): void {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  }
+
   async login(email: string, password: string): Promise<LoginResponse> {
     const response = await apiService.post<BackendLoginResponse>(
       API_CONFIG.ENDPOINTS.AUTH.LOGIN,
@@ -69,8 +74,7 @@ class AuthService {
     } catch (error) {
       // Silencioso
     } finally {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      this.clearSession();
       window.location.href = '/login';
     }
   }
@@ -98,13 +102,18 @@ class AuthService {
   }
 
   async verifyToken(): Promise<boolean> {
+    const token = this.getToken();
+    if (!token) return false;
+
     try {
-      const response = await apiService.post<{ success: boolean }>(
-        API_CONFIG.ENDPOINTS.AUTH.VERIFY,
-        {}
+      const response = await apiService.get<{ success?: boolean }>(
+        API_CONFIG.ENDPOINTS.AUTH.VERIFY_SESSION,
       );
-      return response.success || false;
+      const isValid = response?.success === true;
+      if (!isValid) this.clearSession();
+      return isValid;
     } catch (error) {
+      this.clearSession();
       return false;
     }
   }

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, Download, Filter, Trash2 } from 'lucide-react';
+import { Eye, Download, Trash2, AlertTriangle } from 'lucide-react';
 import Card from '@/components/common/Card';
 import SearchBar from '@/components/common/SearchBar';
 import StatusBadge from '@/components/common/StatusBadge';
 import Table, { TableColumn } from '@/components/common/Table';
 import Button from '@/components/common/Button';
+import Modal from '@/components/common/Modal';
 import ChatFilters from '@/components/chat/ChatFilters';
 import ChatSummaryModal from '@/components/chat/ChatSummaryModal';
 import { ChatHistory, ChatFilters as ChatFiltersType } from '@/types';
@@ -44,30 +45,40 @@ const ChatHistoryPage: React.FC = () => {
   const [filters, setFilters] = useState<ChatFiltersType>({});
   const [selectedChat, setSelectedChat] = useState<ChatHistory | undefined>(undefined);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
-  const [mostrarTodo, setMostrarTodo] = useState(false);
-  const [filteredHistory, setFilteredHistory] = useState<ConversacionAPI[]>([]);
+  const [chatToDelete, setChatToDelete] = useState<ConversacionAPI | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [pagination, setPagination] = useState<PaginationInfo>({
     page: 1,
-    pageSize: 500,
+    pageSize: 10,
     total: 0,
     totalPages: 0
   });
 
-  const loadConversaciones = async (page = 1) => {
+  const loadConversaciones = async (
+    page = 1,
+    options?: {
+      search?: string;
+      filters?: ChatFiltersType;
+    }
+  ) => {
     setLoading(true);
     setErrorMessage('');
     try {
+      const activeSearch = options?.search ?? searchQuery;
+      const activeFilters = options?.filters ?? filters;
+
       const params = new URLSearchParams();
       params.append('origen', 'chatbot');
       params.append('page', page.toString());
-      params.append('pageSize', mostrarTodo ? '1000' : pagination.pageSize.toString());
+      params.append('pageSize', pagination.pageSize.toString());
       
-      if (searchQuery) params.append('search', searchQuery);
-      if (filters.estado) params.append('estado', filters.estado);
-      if (filters.casoLegal) params.append('canal', filters.casoLegal);
-      if (filters.fechaInicio) params.append('fechaInicio', filters.fechaInicio);
-      if (filters.fechaFin) params.append('fechaFin', filters.fechaFin);
+      if (activeSearch) params.append('search', activeSearch);
+      if (activeFilters.estado) params.append('estado', activeFilters.estado);
+      if (activeFilters.casoLegal) params.append('tipoCaso', activeFilters.casoLegal);
+      if (activeFilters.consultorioJuridico) params.append('consultorioJuridico', activeFilters.consultorioJuridico);
+      if (activeFilters.fechaInicio) params.append('fechaInicio', activeFilters.fechaInicio);
+      if (activeFilters.fechaFin) params.append('fechaFin', activeFilters.fechaFin);
 
       const response = await apiService.get<{
         success: boolean;
@@ -77,61 +88,34 @@ const ChatHistoryPage: React.FC = () => {
 
       if (response.success && response.data) {
         setChatHistory(response.data);
-        setFilteredHistory(response.data);
         if (response.pagination) {
           setPagination(response.pagination);
         }
       } else {
         setChatHistory([]);
-        setFilteredHistory([]);
         setErrorMessage('No fue posible obtener conversaciones desde la base de datos.');
       }
     } catch (error) {
       console.error('Error loading conversaciones:', error);
       setChatHistory([]);
-      setFilteredHistory([]);
       setErrorMessage('Error de conexion con el backend. Verifica que sof-ia-auth este corriendo.');
     } finally {
       setLoading(false);
     }
   };
 
-  const aplicarFiltros = () => {
-    let filtered = [...chatHistory];
-
-    if (searchQuery) {
-      filtered = filtered.filter(chat => 
-        chat.temaLegal.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        chat.estudiante?.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (chat.primerMensaje && chat.primerMensaje.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (chat.consultorio && chat.consultorio.toLowerCase().includes(searchQuery.toLowerCase()))
-      );
-    }
-
-    if (filters.casoLegal) {
-      filtered = filtered.filter(chat => chat.canal === filters.casoLegal);
-    }
-
-    if (filters.consultorioJuridico) {
-      filtered = filtered.filter(chat => 
-        chat.consultorio?.toLowerCase().includes(filters.consultorioJuridico!.toLowerCase())
-      );
-    }
-
-    if (filters.estado) {
-      filtered = filtered.filter(chat => chat.estado === filters.estado);
-    }
-
-    setFilteredHistory(filtered);
-  };
-
   const handleFiltersChange = (newFilters: ChatFiltersType) => {
     setFilters(newFilters);
   };
 
-  const handleToggleVerTodo = () => {
-    setMostrarTodo(!mostrarTodo);
-    loadConversaciones(1);
+  const handleApplyFilters = () => {
+    loadConversaciones(1, { filters });
+  };
+
+  const handleClearFilters = () => {
+    const emptyFilters: ChatFiltersType = {};
+    setFilters(emptyFilters);
+    loadConversaciones(1, { filters: emptyFilters });
   };
 
   const handleViewSummary = (chat: ConversacionAPI) => {
@@ -149,13 +133,16 @@ const ChatHistoryPage: React.FC = () => {
   };
 
   const handleDeleteConversation = async (chat: ConversacionAPI) => {
-    const userName = chat.estudiante?.nombre || 'Usuario';
-    const confirmed = window.confirm(`¿Eliminar esta consulta de ${userName}? Esta acción no se puede deshacer.`);
-    if (!confirmed) return;
+    setChatToDelete(chat);
+  };
+
+  const confirmDeleteConversation = async () => {
+    if (!chatToDelete) return;
+    setIsDeleting(true);
 
     try {
       const response = await apiService.delete<{ success: boolean; message?: string }>(
-        `${API_CONFIG.ENDPOINTS.CONVERSACIONES.BY_ID(chat.id)}?origen=chatbot`,
+        `${API_CONFIG.ENDPOINTS.CONVERSACIONES.BY_ID(chatToDelete.id)}?origen=chatbot`,
       );
 
       if (!response.success) {
@@ -163,10 +150,12 @@ const ChatHistoryPage: React.FC = () => {
         return;
       }
 
-      setChatHistory((prev) => prev.filter((item) => item.id !== chat.id));
-      setFilteredHistory((prev) => prev.filter((item) => item.id !== chat.id));
+      setChatHistory((prev) => prev.filter((item) => item.id !== chatToDelete.id));
+      setChatToDelete(null);
     } catch (_error) {
       setErrorMessage('Error al eliminar la consulta. Intenta nuevamente.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -196,10 +185,6 @@ const ChatHistoryPage: React.FC = () => {
   useEffect(() => {
     loadConversaciones();
   }, []);
-
-  useEffect(() => {
-    aplicarFiltros();
-  }, [searchQuery, filters, chatHistory]);
 
   const columns: TableColumn<ConversacionAPI>[] = [
     {
@@ -309,6 +294,8 @@ const ChatHistoryPage: React.FC = () => {
       <ChatFilters
         filters={filters}
         onFiltersChange={handleFiltersChange}
+        onApplyFilters={handleApplyFilters}
+        onClearFilters={handleClearFilters}
         loading={loading}
       />
 
@@ -319,18 +306,6 @@ const ChatHistoryPage: React.FC = () => {
           placeholder="Buscar por usuario, consulta o mensaje..."
         />
       </Card>
-
-      <div className="flex justify-end mb-2">
-        <Button
-          variant={mostrarTodo ? 'primary' : 'secondary'}
-          size="sm"
-          onClick={handleToggleVerTodo}
-          className="flex items-center gap-1"
-        >
-          <Filter className="w-4 h-4" />
-          {mostrarTodo ? `Ocultar (${filteredHistory.length})` : `Ver todo (${filteredHistory.length})`}
-        </Button>
-      </div>
 
       <Card>
         {errorMessage && (
@@ -344,13 +319,14 @@ const ChatHistoryPage: React.FC = () => {
         )}
         <Table
           columns={columns}
-          data={filteredHistory}
+          data={chatHistory}
           loading={loading}
           emptyMessage="No se encontraron conversaciones con los filtros aplicados"
-          pageSize={mostrarTodo ? filteredHistory.length : pagination.pageSize}
-          currentPage={1}
+          pageSize={pagination.pageSize}
+          currentPage={pagination.page}
           totalItems={pagination.total}
           onPageChange={(page) => loadConversaciones(page)}
+          serverSidePagination
         />
       </Card>
 
@@ -359,6 +335,47 @@ const ChatHistoryPage: React.FC = () => {
         onClose={() => setIsSummaryModalOpen(false)}
         chatHistory={selectedChat}
       />
+
+      <Modal
+        isOpen={Boolean(chatToDelete)}
+        onClose={() => !isDeleting && setChatToDelete(null)}
+        title="Confirmar eliminación"
+        size="sm"
+        closeOnOverlayClick={!isDeleting}
+        footer={(
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setChatToDelete(null)}
+              disabled={isDeleting}
+            >
+              Conservar consulta
+            </Button>
+            <Button
+              variant="danger"
+              onClick={confirmDeleteConversation}
+              loading={isDeleting}
+              disabled={isDeleting}
+            >
+              Eliminar consulta
+            </Button>
+          </>
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <div className={`mt-0.5 rounded-full p-2 ${isDarkMode ? 'bg-red-900/30' : 'bg-red-100'}`}>
+            <AlertTriangle className={`w-5 h-5 ${isDarkMode ? 'text-red-300' : 'text-red-600'}`} />
+          </div>
+          <div className="space-y-2">
+            <p className={isDarkMode ? 'text-gray-100' : 'text-gray-900'}>
+              Vas a eliminar la consulta de <span className="font-semibold">{chatToDelete?.estudiante?.nombre || 'Usuario'}</span>.
+            </p>
+            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              Esta acción es permanente y no se puede deshacer.
+            </p>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

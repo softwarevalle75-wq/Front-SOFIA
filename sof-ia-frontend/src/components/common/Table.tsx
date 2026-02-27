@@ -21,6 +21,7 @@ interface TableProps<T> {
   onPageSizeChange?: (pageSize: number) => void;
   onRowClick?: (item: T) => void;
   rowClassName?: (item: T) => string;
+  serverSidePagination?: boolean;
 }
 
 const Table = <T,>({ 
@@ -34,13 +35,20 @@ const Table = <T,>({
   onPageChange,
   onPageSizeChange,
   onRowClick,
-  rowClassName
+  rowClassName,
+  serverSidePagination = false,
 }: TableProps<T>) => {
   const { isDarkMode } = useTheme();
   const dataLength = totalItems ?? data.length;
-  const startIndex = (currentPage - 1) * pageSize;
-  const endIndex = Math.min(startIndex + pageSize, dataLength);
-  const currentData = data.slice(startIndex, endIndex);
+  const localStartIndex = (currentPage - 1) * pageSize;
+  const localEndIndex = Math.min(localStartIndex + pageSize, data.length);
+  const currentData = serverSidePagination ? data : data.slice(localStartIndex, localEndIndex);
+  const shownStart = currentData.length === 0
+    ? 0
+    : (serverSidePagination ? ((currentPage - 1) * pageSize) + 1 : localStartIndex + 1);
+  const shownEnd = serverSidePagination
+    ? ((currentPage - 1) * pageSize) + currentData.length
+    : localEndIndex;
 
   return (
     <div className="overflow-x-auto">
@@ -85,7 +93,7 @@ const Table = <T,>({
           </table>
           <div className={`flex items-center justify-between px-6 py-3 ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
             <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-700'}`}>
-              Mostrando {Math.min(currentData.length, dataLength)} de {dataLength} resultados
+              Mostrando {shownStart}-{shownEnd} de {dataLength} resultados
             </div>
             <div className="flex gap-2">
               {currentPage > 1 && (
@@ -99,7 +107,7 @@ const Table = <T,>({
               <span className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-700'}`}>
                 Página {currentPage}
               </span>
-              {endIndex < dataLength && (
+              {shownEnd < dataLength && (
                 <button 
                   onClick={() => onPageChange && onPageChange(currentPage + 1)}
                   className="px-3 py-1 text-sm text-indigo-600 border border-indigo-600 rounded hover:bg-indigo-600 hover:text-white"

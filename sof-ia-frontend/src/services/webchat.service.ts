@@ -44,17 +44,32 @@ class WebchatService {
       tenantId: import.meta.env.VITE_WEBCHAT_TENANT_ID || CHATBOT_CONFIG.WEBCHAT_TENANT_ID,
     };
 
-    const response = await fetch(this.microserviceEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payloadBody),
-    });
+    let response: Response;
+    try {
+      response = await fetch(this.microserviceEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payloadBody),
+      });
+    } catch {
+      throw new Error('No fue posible conectar con el servicio del chatbot. Revisa la configuracion de VITE_CHATBOT_WEB_API_URL.');
+    }
 
-    const payload = (await response.json()) as WebchatSendMessageResponse;
-    if (!response.ok || !payload.success) {
-      throw new Error(payload.message || 'No fue posible enviar el mensaje al chatbot.');
+    let payload: WebchatSendMessageResponse | null = null;
+    try {
+      payload = (await response.json()) as WebchatSendMessageResponse;
+    } catch {
+      payload = null;
+    }
+
+    if (!response.ok || !payload?.success) {
+      const fallbackMessage =
+        response.status >= 500
+          ? 'El servicio del chatbot no esta disponible temporalmente.'
+          : 'No fue posible enviar el mensaje al chatbot.';
+      throw new Error(payload?.message || fallbackMessage);
     }
 
     return payload.data?.botMessages || [];

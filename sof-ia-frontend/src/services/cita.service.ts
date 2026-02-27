@@ -36,12 +36,14 @@ export class CitaService {
     fechaInicio?: string;
     fechaFin?: string;
     estudianteId?: string;
+    origen?: 'sistema' | 'chatbot';
   }): Promise<ManualCita[]> {
     const params: Record<string, string> = {};
     
     if (filtros?.estado) params.estado = filtros.estado;
     if (filtros?.modalidad) params.modalidad = filtros.modalidad;
     if (filtros?.estudianteId) params.estudianteId = filtros.estudianteId;
+    if (filtros?.origen) params.origen = filtros.origen;
     
     const response = await apiService.get<{ success: boolean; data: any[] }>(
       API_CONFIG.ENDPOINTS.CITAS.BASE,
@@ -53,6 +55,7 @@ export class CitaService {
         id: cita.id,
         estudianteId: cita.estudianteId,
         estudianteNombre: cita.estudiante?.nombre || 'Estudiante',
+        usuarioNombre: cita.usuarioNombre || 'Usuario no registrado',
         fecha: new Date(cita.fecha).toISOString().split('T')[0],
         hora: cita.hora,
         modalidad: cita.modalidad?.toLowerCase() || 'presencial',
@@ -146,6 +149,7 @@ export class CitaService {
       id: data.id,
       estudianteId: data.estudianteId,
       estudianteNombre: data.estudiante?.nombre || 'Estudiante',
+      usuarioNombre: data.usuarioNombre || 'Usuario no registrado',
       fecha: new Date(data.fecha).toISOString().split('T')[0],
       hora: data.hora,
       modalidad: data.modalidad?.toLowerCase() || 'presencial',
@@ -174,6 +178,7 @@ export class CitaService {
       id: data.id || id,
       estudianteId: data.estudianteId || '',
       estudianteNombre: data.estudiante?.nombre || 'Estudiante',
+      usuarioNombre: data.usuarioNombre || 'Usuario no registrado',
       fecha,
       hora: data.hora || '',
       modalidad: data.modalidad?.toLowerCase() || 'presencial',
@@ -198,6 +203,7 @@ export class CitaService {
       id: data.id,
       estudianteId: data.estudianteId,
       estudianteNombre: data.estudiante?.nombre || 'Estudiante',
+      usuarioNombre: data.usuarioNombre || 'Usuario no registrado',
       fecha: new Date(data.fecha).toISOString().split('T')[0],
       hora: data.hora,
       modalidad: data.modalidad?.toLowerCase() || 'presencial',
@@ -218,6 +224,7 @@ export class CitaService {
         id: cita.id,
         estudianteId: cita.estudianteId,
         estudianteNombre: cita.estudiante?.nombre || 'Estudiante',
+        usuarioNombre: cita.usuarioNombre || 'Usuario no registrado',
         fecha: new Date(cita.fecha).toISOString().split('T')[0],
         hora: cita.hora,
         modalidad: cita.modalidad?.toLowerCase() || 'presencial',

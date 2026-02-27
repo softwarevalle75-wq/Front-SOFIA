@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Users, Video, XCircle, CheckCircle, Plus, Edit, X, FileSpreadsheet, FileText, Camera } from 'lucide-react';
+import { Calendar, Clock, Users, Video, XCircle, CheckCircle, Plus, Edit, FileSpreadsheet, FileText, Camera } from 'lucide-react';
 import Button from '@/components/common/Button';
 import { ManualCita } from '@/types';
 import { CitaService } from '@/services/cita.service';
@@ -27,6 +27,8 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
   const [citas, setCitas] = useState<ManualCita[]>([]);
   const [loadingCitas, setLoadingCitas] = useState(false);
   const [filtroEstado, setFiltroEstado] = useState<'todas' | 'agendada' | 'cancelada' | 'completada'>('todas');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 5;
 
   useEffect(() => {
     cargarCitas();
@@ -35,7 +37,7 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
   const cargarCitas = async () => {
     setLoadingCitas(true);
     try {
-      const data = await CitaService.getCitas();
+      const data = await CitaService.getCitas({ origen: 'sistema' });
       setCitas(data);
     } catch (error) {
       console.error('Error loading citas:', error);
@@ -83,9 +85,9 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
 
   const handleExportExcel = () => {
     const data = citasFiltradas.map(c => ({
+      Usuario: c.usuarioNombre || 'Usuario no registrado',
       Estudiante: c.estudianteNombre,
-      Fecha: c.fecha,
-      Hora: c.hora,
+      'Fecha y hora de la cita': `${c.fecha} ${c.hora}`,
       Modalidad: c.modalidad === 'presencial' ? 'Presencial' : 'Virtual',
       Estado: c.estado === 'agendada' ? 'Agendada' : c.estado === 'cancelada' ? 'Cancelada' : 'Completada',
       Motivo: c.motivo
@@ -105,9 +107,9 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
 
   const handleExportPDF = () => {
     const data = citasFiltradas.map(c => ({
+      Usuario: c.usuarioNombre || 'Usuario no registrado',
       Estudiante: c.estudianteNombre,
-      Fecha: c.fecha,
-      Hora: c.hora,
+      'Fecha y hora de la cita': `${c.fecha} ${c.hora}`,
       Modalidad: c.modalidad,
       Estado: c.estado,
       Motivo: c.motivo
@@ -147,13 +149,27 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
     return cita.estado === filtroEstado;
   });
 
+  const totalItems = citasFiltradas.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+  const paginatedCitas = citasFiltradas.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filtroEstado, refreshKey]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   return (
     <div id="citas-list" className={`rounded-lg shadow-md border p-6 transition-colors duration-300 ${
       isDarkMode 
         ? 'bg-gray-800 border-gray-700' 
         : 'bg-white border-gray-100'
     }`}>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col gap-4 mb-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
             isDarkMode ? 'bg-indigo-900/50' : 'bg-indigo-100'
@@ -173,19 +189,49 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
             </p>
           </div>
         </div>
-        <Button variant="primary" size="sm" onClick={onAgendarNueva}>
-          <Plus className="w-4 h-4 mr-1" />
-          Nueva Cita
-        </Button>
-        <Button variant="secondary" size="sm" onClick={handleExportExcel} title="Exportar a Excel">
-          <FileSpreadsheet className="w-4 h-4" />
-        </Button>
-        <Button variant="secondary" size="sm" onClick={handleExportPDF} title="Exportar a PDF">
-          <FileText className="w-4 h-4" />
-        </Button>
-        <Button variant="secondary" size="sm" onClick={handleExportPNG} title="Exportar a Imagen">
-          <Camera className="w-4 h-4" />
-        </Button>
+        <div className="flex flex-col gap-2 md:items-end">
+          <div className="flex flex-wrap gap-2 md:justify-end">
+            <Button variant="primary" size="sm" onClick={onAgendarNueva} aria-label="Crear nueva cita">
+              <Plus className="w-4 h-4" />
+              Nueva Cita
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-2 md:justify-end">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleExportExcel}
+              title="Exportar lista de citas a Excel"
+              aria-label="Exportar lista de citas a Excel"
+              className="min-w-[136px]"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Exportar Excel
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleExportPDF}
+              title="Exportar lista de citas a PDF"
+              aria-label="Exportar lista de citas a PDF"
+              className="min-w-[128px]"
+            >
+              <FileText className="w-4 h-4" />
+              Exportar PDF
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleExportPNG}
+              title="Exportar lista de citas a imagen"
+              aria-label="Exportar lista de citas a imagen"
+              className="min-w-[146px]"
+            >
+              <Camera className="w-4 h-4" />
+              Exportar imagen
+            </Button>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 mb-4">
@@ -236,7 +282,7 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
         </div>
       ) : (
         <div className="space-y-2">
-          {citasFiltradas.map(cita => (
+          {paginatedCitas.map(cita => (
             <div 
               key={cita.id}
               className={`flex items-center justify-between p-3 rounded-lg border ${
@@ -257,7 +303,10 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
                 </div>
                 <div>
                   <div className={`font-medium font-poppins ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
-                    {cita.estudianteNombre}
+                    Usuario: {cita.usuarioNombre || 'Usuario no registrado'}
+                  </div>
+                  <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Estudiante asignado: {cita.estudianteNombre}
                   </div>
                   <div className={`text-sm flex items-center gap-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                     <Calendar className="w-3 h-3" />
@@ -301,6 +350,43 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
               </div>
             </div>
           ))}
+
+          {totalItems > PAGE_SIZE && (
+            <div className="mt-4 flex items-center justify-between">
+              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                Mostrando {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, totalItems)} de {totalItems} citas
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className={`px-3 py-1 text-sm rounded border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDarkMode
+                      ? 'border-indigo-500 text-indigo-300 hover:bg-indigo-600/20'
+                      : 'border-indigo-300 text-indigo-700 hover:bg-indigo-50'
+                  }`}
+                >
+                  Anterior
+                </button>
+                <span className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Página {currentPage} de {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage >= totalPages}
+                  className={`px-3 py-1 text-sm rounded border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDarkMode
+                      ? 'border-indigo-500 text-indigo-300 hover:bg-indigo-600/20'
+                      : 'border-indigo-300 text-indigo-700 hover:bg-indigo-50'
+                  }`}
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

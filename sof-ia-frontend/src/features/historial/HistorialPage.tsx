@@ -20,7 +20,7 @@ const HistorialPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filtroTipo, setFiltroTipo] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(500);
+  const [pageSize, setPageSize] = useState(25);
   const [totalItems, setTotalItems] = useState(0);
   const [mostrarTodo, setMostrarTodo] = useState(false);
 
@@ -147,6 +147,19 @@ const HistorialPage: React.FC = () => {
     
     return matchesSearch && matchesTipo;
   });
+
+  const effectivePageSize = mostrarTodo ? Math.max(1, historialFiltrado.length) : pageSize;
+  const totalPages = Math.max(1, Math.ceil(historialFiltrado.length / effectivePageSize));
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filtroTipo, mostrarTodo, pageSize]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const handleExportExcel = () => {
     // Exportar TODO el historial (sin filtros)
@@ -330,8 +343,30 @@ const HistorialPage: React.FC = () => {
                 </option>
               ))}
             </select>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              disabled={mostrarTodo}
+              className={`px-3 py-2 rounded-lg border text-sm ${
+                isDarkMode
+                  ? 'bg-gray-700 border-gray-600 text-white disabled:opacity-50'
+                  : 'bg-white border-gray-300 text-gray-800 disabled:opacity-50'
+              }`}
+              title="Elementos por página"
+            >
+              <option value={10}>10 / página</option>
+              <option value={25}>25 / página</option>
+              <option value={50}>50 / página</option>
+              <option value={100}>100 / página</option>
+            </select>
           </div>
         </div>
+
+        {!loading && historialFiltrado.length > 0 && (
+          <div className={`mb-3 text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+            Mostrando {historialFiltrado.length} acciones en {totalPages} página{totalPages === 1 ? '' : 's'}
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
@@ -371,7 +406,7 @@ const HistorialPage: React.FC = () => {
               columns={columns}
               data={historialFiltrado}
               pageSize={mostrarTodo ? historialFiltrado.length : pageSize}
-              currentPage={1}
+              currentPage={currentPage}
               totalItems={historialFiltrado.length}
               onPageChange={setCurrentPage}
             />

@@ -63,10 +63,82 @@ function mapStatusToFiltro(estado?: string): 'CLOSED' | 'OPEN' | undefined {
   return undefined;
 }
 
+function normalizeCaseText(value: string): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function inferTipoCaso(payload: {
+  temaLegal?: string | null;
+  primerMensaje?: string | null;
+  resumen?: string | null;
+}):
+  | 'familia-alimentos'
+  | 'laboral'
+  | 'civil'
+  | 'penal'
+  | 'comercial'
+  | 'constitucional'
+  | 'administrativo'
+  | 'conciliacion'
+  | 'transito'
+  | 'disciplinario'
+  | 'responsabilidad-fiscal'
+  | 'general' {
+  const text = normalizeCaseText(`${payload.temaLegal || ''} ${payload.primerMensaje || ''} ${payload.resumen || ''}`);
+
+  const matches = (terms: string[]) => terms.some((term) => text.includes(term));
+
+  if (matches(['despido', 'despidieron', 'sin justa causa', 'laboral', 'empleador', 'salario', 'liquidacion', 'contrato de trabajo', 'prestaciones', 'indemnizacion'])) return 'laboral';
+  if (matches(['lesion', 'denuncia', 'amenaza', 'agresion', 'penal', 'hurto', 'fiscalia', 'violacion', 'abuso sexual', 'homicidio'])) return 'penal';
+  if (matches(['familia-alimentos', 'cuota alimentaria', 'alimentos', 'custodia', 'patria potestad', 'comisaria de familia', 'divorcio', 'familia', 'esposa', 'esposo'])) return 'familia-alimentos';
+  if (matches(['tutela', 'derecho de peticion', 'derecho de petición', 'habeas data', 'derecho fundamental', 'constitucional'])) return 'constitucional';
+  if (matches(['transito', 'tránsito', 'comparendo', 'choque', 'accidente de transito', 'impugnar comparendo', 'multa de transito'])) return 'transito';
+  if (matches(['responsabilidad fiscal', 'hallazgo fiscal', 'contraloria', 'contraloría', 'proceso fiscal', 'detrimento patrimonial'])) return 'responsabilidad-fiscal';
+  if (matches(['disciplinario', 'procuraduria', 'procuraduría', 'falta disciplinaria', 'investigacion disciplinaria'])) return 'disciplinario';
+  if (matches(['conciliacion', 'conciliación', 'conciliar', 'centro de conciliacion', 'centro de conciliación'])) return 'conciliacion';
+  if (matches(['administrativo', 'entidad publica', 'entidad pública', 'acto administrativo', 'recurso de reposicion', 'recurso de apelacion'])) return 'administrativo';
+  if (matches(['sociedad', 'empresa', 'comercial', 'factura', 'camara de comercio', 'cámara de comercio', 'contrato mercantil'])) return 'comercial';
+  if (matches(['civil', 'arrendamiento', 'deuda', 'incumplimiento', 'obligacion', 'obligación'])) return 'civil';
+  return 'general';
+}
+
+function mapTipoCasoToConsultorio(tipoCaso: ReturnType<typeof inferTipoCaso>): string {
+  switch (tipoCaso) {
+    case 'familia-alimentos':
+      return 'Derecho de Familia';
+    case 'laboral':
+      return 'Derecho Laboral';
+    case 'civil':
+      return 'Derecho Civil';
+    case 'penal':
+      return 'Derecho Penal';
+    case 'comercial':
+      return 'Derecho Comercial';
+    case 'constitucional':
+      return 'Derecho Constitucional';
+    case 'administrativo':
+      return 'Derecho Administrativo';
+    case 'conciliacion':
+      return 'Conciliacion';
+    case 'transito':
+      return 'Derecho de Transito';
+    case 'disciplinario':
+      return 'Derecho Disciplinario';
+    case 'responsabilidad-fiscal':
+      return 'Responsabilidad Fiscal';
+    default:
+      return 'General';
+  }
+}
+
 export const conversacionController = {
   async getAll(req: Request, res: Response) {
     try {
-      const { page = 1, pageSize = 10, search, estado, canal, fechaInicio, fechaFin, origen } = req.query;
+      const { page = 1, pageSize = 10, search, estado, canal, fechaInicio, fechaFin, origen, tipoCaso, consultorioJuridico } = req.query;
 
       if (origen === 'chatbot') {
         const whereClauses: string[] = ['1=1'];
@@ -91,7 +163,9 @@ export const conversacionController = {
         }
 
         if (fechaFin) {
-          whereParams.push(new Date(String(fechaFin)));
+          const endDate = new Date(String(fechaFin));
+          endDate.setHours(23, 59, 59, 999);
+          whereParams.push(endDate);
           whereClauses.push(`c."createdAt" <= $${whereParams.length}`);
         }
 
@@ -161,15 +235,22 @@ export const conversacionController = {
           return segments
             .filter((segment) => !isConsultationDeleted(row.contextData, segment.id))
             .map((segment) => {
-            const storedSummary = getStoredConsultationSummary(row.contextData, segment.id);
-            return {
-              id: segment.id,
-              conversationId: row.id,
-              temaLegal: segment.firstUserMessage || 'Consulta de chatbot',
-              consultorio: null,
-              estado: segment.status === 'closed' ? 'leido' : 'no_leido',
-              canal: row.channel === 'WHATSAPP' ? 'whatsapp' : 'web',
-              primerMensaje: segment.firstUserMessage,
+              const storedSummary = getStoredConsultationSummary(row.contextData, segment.id);
+              const casoInferido = inferTipoCaso({
+                temaLegal: segment.firstUserMessage,
+                primerMensaje: segment.firstUserMessage,
+                resumen: storedSummary,
+              });
+              const consultorioInferido = mapTipoCasoToConsultorio(casoInferido);
+              return {
+                id: segment.id,
+                conversationId: row.id,
+                temaLegal: segment.firstUserMessage || 'Consulta de chatbot',
+                consultorio: consultorioInferido,
+                tipoCaso: casoInferido,
+                estado: segment.status === 'closed' ? 'leido' : 'no_leido',
+                canal: row.channel === 'WHATSAPP' ? 'whatsapp' : 'web',
+                primerMensaje: segment.firstUserMessage,
               resumen: storedSummary || buildConsultationSummary(segment),
               createdAt: segment.startedAt.toISOString(),
               endedAt: segment.endedAt ? segment.endedAt.toISOString() : null,
@@ -190,11 +271,23 @@ export const conversacionController = {
             const documento = String(item.estudiante?.documento || '').toLowerCase();
             const consulta = String(item.temaLegal || '').toLowerCase();
             const primerMensaje = String(item.primerMensaje || '').toLowerCase();
+            const consultorio = String(item.consultorio || '').toLowerCase();
             return usuario.includes(searchValue)
               || documento.includes(searchValue)
               || consulta.includes(searchValue)
-              || primerMensaje.includes(searchValue);
+              || primerMensaje.includes(searchValue)
+              || consultorio.includes(searchValue);
           });
+        }
+
+        const tipoCasoFiltro = normalizeCaseText(String(tipoCaso || ''));
+        if (tipoCasoFiltro) {
+          filteredConsultations = filteredConsultations.filter((item) => item.tipoCaso === tipoCasoFiltro);
+        }
+
+        const consultorioFiltro = normalizeCaseText(String(consultorioJuridico || ''));
+        if (consultorioFiltro) {
+          filteredConsultations = filteredConsultations.filter((item) => normalizeCaseText(String(item.consultorio || '')).includes(consultorioFiltro));
         }
 
         filteredConsultations = filteredConsultations.sort(
@@ -232,7 +325,11 @@ export const conversacionController = {
       if (fechaInicio || fechaFin) {
         where.createdAt = {};
         if (fechaInicio) where.createdAt.gte = new Date(fechaInicio as string);
-        if (fechaFin) where.createdAt.lte = new Date(fechaFin as string);
+        if (fechaFin) {
+          const endDate = new Date(fechaFin as string);
+          endDate.setHours(23, 59, 59, 999);
+          where.createdAt.lte = endDate;
+        }
       }
 
       const skip = (Number(page) - 1) * Number(pageSize);
@@ -355,6 +452,11 @@ export const conversacionController = {
         }));
 
         const storedSummary = getStoredConsultationSummary(conversation.contextData, selectedSegment.id);
+        const casoInferido = inferTipoCaso({
+          temaLegal: selectedSegment.firstUserMessage,
+          primerMensaje: selectedSegment.firstUserMessage,
+          resumen: storedSummary,
+        });
 
         return res.json({
           success: true,
@@ -362,7 +464,8 @@ export const conversacionController = {
             id: selectedSegment.id,
             conversationId,
             temaLegal: selectedSegment.firstUserMessage || 'Consulta de chatbot',
-            consultorio: null,
+            consultorio: mapTipoCasoToConsultorio(casoInferido),
+            tipoCaso: casoInferido,
             estado: selectedSegment.status === 'closed' ? 'leido' : 'no_leido',
             canal: conversation.channel === 'WHATSAPP' ? 'whatsapp' : 'web',
             primerMensaje: selectedSegment.firstUserMessage,

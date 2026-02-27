@@ -4,7 +4,7 @@ import notificationService from '../services/notification.service';
 
 const prisma = new PrismaClient();
 
-function toDateFromWeekdayAndHour(day?: string, hour?: number): Date {
+function toDateFromWeekdayAndHour(day?: string, hour?: number, minute?: number): Date {
   const mapping: Record<string, number> = {
     lunes: 1,
     martes: 2,
@@ -27,7 +27,8 @@ function toDateFromWeekdayAndHour(day?: string, hour?: number): Date {
   }
 
   if (typeof hour === 'number' && Number.isFinite(hour)) {
-    base.setHours(Math.max(0, Math.min(23, hour)), 0, 0, 0);
+    const safeMinute = minute === 30 ? 30 : 0;
+    base.setHours(Math.max(0, Math.min(23, hour)), safeMinute, 0, 0);
   }
 
   return base;
@@ -162,6 +163,7 @@ export const notificacionController = {
           userDocumentNumber?: string;
           day?: string;
           hour24?: number;
+          minute?: number;
           mode?: 'presencial' | 'virtual';
         };
       };
@@ -200,8 +202,10 @@ export const notificacionController = {
           const citaChatbot = {
             id: `chatbot-${Date.now()}`,
             estudianteId: 'chatbot',
-            fecha: toDateFromWeekdayAndHour(appointment.day, appointment.hour24),
-            hora: typeof appointment.hour24 === 'number' ? `${String(appointment.hour24).padStart(2, '0')}:00` : '09:00',
+            fecha: toDateFromWeekdayAndHour(appointment.day, appointment.hour24, appointment.minute),
+            hora: typeof appointment.hour24 === 'number'
+              ? `${String(appointment.hour24).padStart(2, '0')}:${String(appointment.minute === 30 ? 30 : 0).padStart(2, '0')}`
+              : '09:00',
             modalidad: String(appointment.mode || '').toLowerCase() === 'presencial' ? 'PRESENCIAL' : 'VIRTUAL',
             motivo: `Evento de cita desde chatbot (${tipoEvento || 'agendamiento'})`,
             estado: tipoEvento === 'cancelacion' ? 'CANCELADA' : 'AGENDADA',
@@ -230,8 +234,10 @@ export const notificacionController = {
           if (tipoEvento === 'cancelacion') {
             await notificationService.enviarNotificacionCancelacion(payload as any);
           } else if (tipoEvento === 'reprogramacion') {
-            const nuevaFecha = toDateFromWeekdayAndHour(appointment.day, appointment.hour24);
-            const nuevaHora = typeof appointment.hour24 === 'number' ? `${String(appointment.hour24).padStart(2, '0')}:00` : '09:00';
+            const nuevaFecha = toDateFromWeekdayAndHour(appointment.day, appointment.hour24, appointment.minute);
+            const nuevaHora = typeof appointment.hour24 === 'number'
+              ? `${String(appointment.hour24).padStart(2, '0')}:${String(appointment.minute === 30 ? 30 : 0).padStart(2, '0')}`
+              : '09:00';
             await notificationService.enviarNotificacionReprogramacion(payload as any, nuevaFecha, nuevaHora);
           } else {
             await notificationService.enviarNotificacionCita(payload as any);

@@ -13,7 +13,25 @@ import PublicChatbotPage from '@/features/webchat/PublicChatbotPage';
 import ProtectedRoute from './ProtectedRoute';
 import PublicRoute from './PublicRoute';
 
-export const router = createBrowserRouter([
+const publicOnlyRaw = String(import.meta.env.VITE_PUBLIC_CHATBOT_ONLY || '').trim().toLowerCase();
+const isPublicChatbotOnly = publicOnlyRaw === 'true' || publicOnlyRaw === '1' || publicOnlyRaw === 'yes';
+
+const publicChatbotOnlyRoutes = [
+  {
+    path: '/chatbot',
+    element: <PublicChatbotPage />,
+  },
+  {
+    path: '/',
+    element: <Navigate to="/chatbot" replace />,
+  },
+  {
+    path: '*',
+    element: <Navigate to="/chatbot" replace />,
+  },
+];
+
+const defaultRoutes = [
   // Rutas públicas - solo accesibles si NO hay sesión
   {
     element: <PublicRoute />,
@@ -28,7 +46,7 @@ export const router = createBrowserRouter([
       },
     ],
   },
-  
+
   // Rutas protegidas - requieren sesión activa
   {
     path: '/',
@@ -87,4 +105,6 @@ export const router = createBrowserRouter([
       },
     ],
   },
-]);
+];
+
+export const router = createBrowserRouter(isPublicChatbotOnly ? publicChatbotOnlyRoutes : defaultRoutes);
