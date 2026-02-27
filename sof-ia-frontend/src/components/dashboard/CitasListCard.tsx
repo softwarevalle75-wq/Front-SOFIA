@@ -83,9 +83,9 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
 
   const handleExportExcel = () => {
     const data = citasFiltradas.map(c => ({
+      Usuario: c.usuarioNombre || 'Usuario no registrado',
       Estudiante: c.estudianteNombre,
-      Fecha: c.fecha,
-      Hora: c.hora,
+      'Fecha y hora de la cita': `${c.fecha} ${c.hora}`,
       Modalidad: c.modalidad === 'presencial' ? 'Presencial' : 'Virtual',
       Estado: c.estado === 'agendada' ? 'Agendada' : c.estado === 'cancelada' ? 'Cancelada' : 'Completada',
       Motivo: c.motivo
@@ -105,9 +105,9 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
 
   const handleExportPDF = () => {
     const data = citasFiltradas.map(c => ({
+      Usuario: c.usuarioNombre || 'Usuario no registrado',
       Estudiante: c.estudianteNombre,
-      Fecha: c.fecha,
-      Hora: c.hora,
+      'Fecha y hora de la cita': `${c.fecha} ${c.hora}`,
       Modalidad: c.modalidad,
       Estado: c.estado,
       Motivo: c.motivo
@@ -257,7 +257,10 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
                 </div>
                 <div>
                   <div className={`font-medium font-poppins ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
-                    {cita.estudianteNombre}
+                    Usuario: {cita.usuarioNombre || 'Usuario no registrado'}
+                  </div>
+                  <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Estudiante asignado: {cita.estudianteNombre}
                   </div>
                   <div className={`text-sm flex items-center gap-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                     <Calendar className="w-3 h-3" />
