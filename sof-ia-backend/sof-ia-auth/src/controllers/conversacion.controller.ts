@@ -75,23 +75,40 @@ function inferTipoCaso(payload: {
   temaLegal?: string | null;
   primerMensaje?: string | null;
   resumen?: string | null;
-}): 'familia' | 'laboral' | 'civil' | 'penal' | 'comercial' | 'administrativo' | 'general' {
+}):
+  | 'familia-alimentos'
+  | 'laboral'
+  | 'civil'
+  | 'penal'
+  | 'comercial'
+  | 'constitucional'
+  | 'administrativo'
+  | 'conciliacion'
+  | 'transito'
+  | 'disciplinario'
+  | 'responsabilidad-fiscal'
+  | 'general' {
   const text = normalizeCaseText(`${payload.temaLegal || ''} ${payload.primerMensaje || ''} ${payload.resumen || ''}`);
 
   const matches = (terms: string[]) => terms.some((term) => text.includes(term));
 
-  if (matches(['divor', 'custodia', 'alimentos', 'patria potestad', 'familia', 'esposa', 'esposo'])) return 'familia';
-  if (matches(['despido', 'laboral', 'empleador', 'salario', 'liquidacion', 'contrato de trabajo'])) return 'laboral';
-  if (matches(['lesion', 'denuncia', 'amenaza', 'agresion', 'penal', 'hurto', 'fiscalia'])) return 'penal';
-  if (matches(['sociedad', 'empresa', 'comercial', 'factura', 'camara de comercio', 'contrato mercantil'])) return 'comercial';
-  if (matches(['tutela', 'administrativo', 'entidad publica', 'acto administrativo'])) return 'administrativo';
-  if (matches(['civil', 'arrendamiento', 'deuda', 'incumplimiento', 'obligacion'])) return 'civil';
+  if (matches(['despido', 'despidieron', 'sin justa causa', 'laboral', 'empleador', 'salario', 'liquidacion', 'contrato de trabajo', 'prestaciones', 'indemnizacion'])) return 'laboral';
+  if (matches(['lesion', 'denuncia', 'amenaza', 'agresion', 'penal', 'hurto', 'fiscalia', 'violacion', 'abuso sexual', 'homicidio'])) return 'penal';
+  if (matches(['familia-alimentos', 'cuota alimentaria', 'alimentos', 'custodia', 'patria potestad', 'comisaria de familia', 'divorcio', 'familia', 'esposa', 'esposo'])) return 'familia-alimentos';
+  if (matches(['tutela', 'derecho de peticion', 'derecho de petición', 'habeas data', 'derecho fundamental', 'constitucional'])) return 'constitucional';
+  if (matches(['transito', 'tránsito', 'comparendo', 'choque', 'accidente de transito', 'impugnar comparendo', 'multa de transito'])) return 'transito';
+  if (matches(['responsabilidad fiscal', 'hallazgo fiscal', 'contraloria', 'contraloría', 'proceso fiscal', 'detrimento patrimonial'])) return 'responsabilidad-fiscal';
+  if (matches(['disciplinario', 'procuraduria', 'procuraduría', 'falta disciplinaria', 'investigacion disciplinaria'])) return 'disciplinario';
+  if (matches(['conciliacion', 'conciliación', 'conciliar', 'centro de conciliacion', 'centro de conciliación'])) return 'conciliacion';
+  if (matches(['administrativo', 'entidad publica', 'entidad pública', 'acto administrativo', 'recurso de reposicion', 'recurso de apelacion'])) return 'administrativo';
+  if (matches(['sociedad', 'empresa', 'comercial', 'factura', 'camara de comercio', 'cámara de comercio', 'contrato mercantil'])) return 'comercial';
+  if (matches(['civil', 'arrendamiento', 'deuda', 'incumplimiento', 'obligacion', 'obligación'])) return 'civil';
   return 'general';
 }
 
 function mapTipoCasoToConsultorio(tipoCaso: ReturnType<typeof inferTipoCaso>): string {
   switch (tipoCaso) {
-    case 'familia':
+    case 'familia-alimentos':
       return 'Derecho de Familia';
     case 'laboral':
       return 'Derecho Laboral';
@@ -101,8 +118,18 @@ function mapTipoCasoToConsultorio(tipoCaso: ReturnType<typeof inferTipoCaso>): s
       return 'Derecho Penal';
     case 'comercial':
       return 'Derecho Comercial';
+    case 'constitucional':
+      return 'Derecho Constitucional';
     case 'administrativo':
       return 'Derecho Administrativo';
+    case 'conciliacion':
+      return 'Conciliacion';
+    case 'transito':
+      return 'Derecho de Transito';
+    case 'disciplinario':
+      return 'Derecho Disciplinario';
+    case 'responsabilidad-fiscal':
+      return 'Responsabilidad Fiscal';
     default:
       return 'General';
   }

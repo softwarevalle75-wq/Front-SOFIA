@@ -25,12 +25,17 @@ const ChatFiltersComponent: React.FC<ChatFiltersComponentProps> = ({
 
   const casosLegales = [
     { value: '', label: 'Todos los casos' },
-    { value: 'familia', label: 'Derecho de Familia' },
+    { value: 'familia-alimentos', label: 'Familia-alimentos' },
     { value: 'laboral', label: 'Derecho Laboral' },
-    { value: 'civil', label: 'Derecho Civil' },
     { value: 'penal', label: 'Derecho Penal' },
+    { value: 'civil', label: 'Derecho Civil' },
+    { value: 'constitucional', label: 'Constitucional' },
+    { value: 'administrativo', label: 'Derecho Administrativo' },
+    { value: 'conciliacion', label: 'Conciliación' },
+    { value: 'transito', label: 'Tránsito' },
+    { value: 'disciplinario', label: 'Disciplinario' },
+    { value: 'responsabilidad-fiscal', label: 'Responsabilidad fiscal' },
     { value: 'comercial', label: 'Derecho Comercial' },
-    { value: 'administrativo', label: 'Derecho Administrativo' }
   ];
 
   const handleFilterChange = (field: keyof ChatFilters, value: any) => {
