@@ -112,6 +112,16 @@ function toSummaryPhrase(text: string, maxLength?: number): string {
   return cleaned;
 }
 
+function cleanBotGuidance(text: string): string {
+  const cleaned = toSummaryPhrase(text)
+    .replace(/¿?Que deseas hacer ahora\?.*$/i, '')
+    .replace(/¿?Qué deseas hacer ahora\?.*$/i, '')
+    .replace(/\*?Importante:?\*?.*$/i, '')
+    .trim();
+
+  return cleaned;
+}
+
 function pickCaseType(userText: string): 'familia' | 'laboral' | 'penal' | 'general' {
   const normalized = normalizeInput(userText);
   if (normalized.includes('divor') || normalized.includes('custodia') || normalized.includes('alimentos') || normalized.includes('esposa') || normalized.includes('esposo')) {
@@ -348,7 +358,7 @@ export function buildConsultationSummary(segment: ChatbotConsultationSegment): s
 
   const hasTechnicalFallback = botMessages.some((text) => normalizeInput(text).includes('no pude consultar la base juridica'));
   const botMain = botMessages
-    .map((text) => toSummaryPhrase(text, 220))
+    .map((text) => cleanBotGuidance(text))
     .find((text) => text.length >= 40 && !normalizeInput(text).includes('que deseas hacer ahora'));
 
   const caseType = pickCaseType(userMain);
