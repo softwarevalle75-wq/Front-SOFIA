@@ -122,6 +122,43 @@ function cleanBotGuidance(text: string): string {
   return cleaned;
 }
 
+function isLowValueBotGuidance(text: string): boolean {
+  const normalized = normalizeInput(text);
+  if (!normalized) return true;
+  if (normalized.includes('estamos analizando tu consulta')) return true;
+  if (normalized.includes('indicame primero el tipo de caso')) return true;
+  if (normalized.includes('indícame primero el tipo de caso')) return true;
+  if (normalized.includes('que deseas hacer ahora')) return true;
+  if (normalized.includes('qué deseas hacer ahora')) return true;
+  if (normalized.includes('escribe reset')) return true;
+  if (normalized.includes('si deseas agendar una cita')) return true;
+  if (normalized.includes('para finalizar la conversacion')) return true;
+  return false;
+}
+
+function pickBestBotGuidance(botMessages: string[]): string | undefined {
+  const cleaned = botMessages
+    .map((text) => cleanBotGuidance(text))
+    .filter((text) => text.length > 0);
+
+  const useful = cleaned.filter((text) => !isLowValueBotGuidance(text));
+  const candidates = useful.length > 0 ? useful : cleaned;
+  if (candidates.length === 0) return undefined;
+
+  const scored = candidates
+    .map((text) => {
+      const normalized = normalizeInput(text);
+      let score = Math.min(120, text.length);
+      if (normalized.includes('con lo que') || normalized.includes('puedes empezar')) score += 50;
+      if (normalized.includes('ruta') || normalized.includes('reunir') || normalized.includes('orientacion preliminar')) score += 25;
+      if (/\b1\)|\b2\)|\b3\)/.test(text)) score += 10;
+      return { text, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return scored[0]?.text;
+}
+
 function pickCaseType(userText: string): 'familia' | 'laboral' | 'penal' | 'general' {
   const normalized = normalizeInput(userText);
   if (normalized.includes('divor') || normalized.includes('custodia') || normalized.includes('alimentos') || normalized.includes('esposa') || normalized.includes('esposo')) {
@@ -357,9 +394,7 @@ export function buildConsultationSummary(segment: ChatbotConsultationSegment): s
     .filter((text) => text.length > 0 && text !== userMain);
 
   const hasTechnicalFallback = botMessages.some((text) => normalizeInput(text).includes('no pude consultar la base juridica'));
-  const botMain = botMessages
-    .map((text) => cleanBotGuidance(text))
-    .find((text) => text.length >= 40 && !normalizeInput(text).includes('que deseas hacer ahora'));
+  const botMain = pickBestBotGuidance(botMessages);
 
   const caseType = pickCaseType(userMain);
   const orientationBullets = orientationByCase(caseType);
@@ -372,7 +407,7 @@ export function buildConsultationSummary(segment: ChatbotConsultationSegment): s
   const orientationIntro = hasTechnicalFallback
     ? '\n\nSOF-IA brindó una orientación preliminar indicando que, debido a un problema técnico, no fue posible consultar la base jurídica en ese momento. Mientras se restablece el sistema, se compartió una guía inicial.'
     : botMain
-      ? `\n\nSOF-IA brindó una orientación preliminar indicando: ${botMain}`
+      ? `\n\nRespuesta entregada por SOF-IA: ${botMain}`
       : '\n\nSOF-IA brindó una orientación preliminar para definir una ruta inicial del caso.';
 
   return [
