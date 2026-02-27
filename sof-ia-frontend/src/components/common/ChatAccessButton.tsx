@@ -20,8 +20,7 @@ const TelegramIcon: React.FC<{ className?: string }> = ({ className = 'h-6 w-6' 
 
 interface ChannelCardProps {
   title: string;
-  description: string;
-  badge: string;
+  helper: string;
   icon: React.ReactNode;
   onClick: () => void;
   styleType: 'web' | 'telegram';
@@ -29,8 +28,7 @@ interface ChannelCardProps {
 
 const ChannelCard: React.FC<ChannelCardProps> = ({
   title,
-  description,
-  badge,
+  helper,
   icon,
   onClick,
   styleType,
@@ -64,22 +62,17 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
       onClick={onClick}
       className={`group w-full rounded-xl border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 ${styles.container}`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className={`mt-0.5 flex h-11 w-11 items-center justify-center rounded-lg shadow-sm ${styles.iconWrap}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className={`flex h-11 w-11 items-center justify-center rounded-lg shadow-sm ${styles.iconWrap}`}>
             {icon}
           </div>
           <div>
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</p>
-            <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-300">{description}</p>
+            <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-300">{helper}</p>
           </div>
         </div>
-        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${styles.badge}`}>{badge}</span>
-      </div>
-
-      <div className={`mt-4 flex items-center gap-1 text-xs font-semibold ${styles.action}`}>
-        <span>Abrir canal</span>
-        <ExternalLink className="h-3.5 w-3.5" />
+        <ExternalLink className={`h-4 w-4 ${styles.action}`} />
       </div>
     </button>
   );
@@ -125,18 +118,12 @@ const ChatAccessButton: React.FC<ChatAccessButtonProps> = ({ className = '' }) =
       </Button>
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Selecciona un canal" footer={modalFooter} size="md">
-        <div className="space-y-4">
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900/70">
-            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Elige donde continuar la conversacion</p>
-            <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
-              Puedes seguir por el chatbot web o abrir directamente el bot de Telegram.
-            </p>
-          </div>
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600 dark:text-gray-300">Elige una opcion para continuar.</p>
 
           <ChannelCard
-            title="Chatbot web"
-            description="Canal integrado para atender consultas desde navegador con experiencia guiada."
-            badge="Recomendado"
+            title="Chat Web"
+            helper="Abrir en navegador"
             icon={<Globe className="h-5 w-5" />}
             onClick={() => openExternalLink(publicChatbotUrl)}
             styleType="web"
@@ -144,8 +131,7 @@ const ChatAccessButton: React.FC<ChatAccessButtonProps> = ({ className = '' }) =
 
           <ChannelCard
             title="Telegram"
-            description="Abre el bot oficial de Telegram para continuar la conversacion desde tu app movil o escritorio."
-            badge="Oficial"
+            helper="Abrir en la app"
             icon={<TelegramIcon className="h-5 w-5" />}
             onClick={() => openExternalLink(telegramBotUrl)}
             styleType="telegram"
