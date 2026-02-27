@@ -357,15 +357,6 @@ export function buildConsultationSummary(segment: ChatbotConsultationSegment): s
     '',
     '❓ Preguntas Clave para Avanzar',
     ...questions.map((item, index) => `${index + 1}. ${item}`),
-    '',
-    '⚠️ Nota Importante',
-    'Esta orientación es preliminar y no reemplaza la atención presencial del Consultorio Jurídico.',
-    '',
-    '➡️ ¿Qué deseas hacer ahora?',
-    '• Para realizar otra consulta, escribe: reset',
-    '• Para agendar una cita, escribe: si, deseo agendar una cita',
-    '• Si ya tienes una cita, puedes escribir: reprogramar cita o cancelar cita',
-    '• Para finalizar la conversación, escribe: salir',
   ].join('\n');
 }
 
