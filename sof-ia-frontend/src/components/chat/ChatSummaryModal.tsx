@@ -242,7 +242,7 @@ const ChatSummaryModal: React.FC<ChatSummaryModalProps> = ({
                           </div>
                           <div>
                             <p className="text-sm text-success font-medium mb-2">Análisis del Caso</p>
-                            <p className="text-sm text-gray-700 font-opensans leading-relaxed">
+                            <p className="text-sm text-gray-700 font-opensans leading-relaxed whitespace-pre-line">
                               {chatSummary.resumen}
                             </p>
                           </div>

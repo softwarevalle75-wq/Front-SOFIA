@@ -94,7 +94,7 @@ export const notificationService = {
     const seccionResumen = resumenConversacion ? `
       <div style="background: #FEF3C7; padding: 15px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #F59E0B;">
         <h3 style="margin-top: 0; color: #F59E0B; font-size: 16px;">💬 Resumen de tu conversación con SOF-IA</h3>
-        <p style="font-size: 14px; line-height: 1.6;">${resumenConversacion}</p>
+        <p style="font-size: 14px; line-height: 1.6; white-space: pre-line;">${resumenConversacion}</p>
       </div>
     ` : '';
 

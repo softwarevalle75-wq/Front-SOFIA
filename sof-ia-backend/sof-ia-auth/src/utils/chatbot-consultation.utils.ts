@@ -112,6 +112,91 @@ function toSummaryPhrase(text: string, maxLength?: number): string {
   return cleaned;
 }
 
+function pickCaseType(userText: string): 'familia' | 'laboral' | 'penal' | 'general' {
+  const normalized = normalizeInput(userText);
+  if (normalized.includes('divor') || normalized.includes('custodia') || normalized.includes('alimentos') || normalized.includes('esposa') || normalized.includes('esposo')) {
+    return 'familia';
+  }
+  if (normalized.includes('despido') || normalized.includes('liquidacion') || normalized.includes('salario') || normalized.includes('empleador')) {
+    return 'laboral';
+  }
+  if (normalized.includes('golpe') || normalized.includes('amenaza') || normalized.includes('denuncia') || normalized.includes('lesion')) {
+    return 'penal';
+  }
+  return 'general';
+}
+
+function uniqueStrings(items: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of items) {
+    const key = normalizeInput(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+function fallbackQuestionsByCase(caseType: 'familia' | 'laboral' | 'penal' | 'general'): string[] {
+  if (caseType === 'familia') {
+    return [
+      'El divorcio sería de mutuo acuerdo o existe conflicto?',
+      'Hay hijos menores o acuerdos de custodia/alimentos?',
+      'Existen bienes o deudas que deban repartirse?',
+    ];
+  }
+  if (caseType === 'laboral') {
+    return [
+      'Cuál era tu tipo de contrato y fecha del hecho principal?',
+      'Hubo despido, renuncia o incumplimiento de pagos?',
+      'Qué resultado esperas obtener (reintegro, pago, indemnización)?',
+    ];
+  }
+  if (caseType === 'penal') {
+    return [
+      'Qué ocurrió, cuándo y dónde sucedió?',
+      'Existen pruebas o testigos de los hechos?',
+      'Ya presentaste denuncia o necesitas orientación para hacerlo?',
+    ];
+  }
+  return [
+    'Cuál es el hecho principal que deseas resolver?',
+    'Cuándo ocurrió y quiénes están involucrados?',
+    'Qué resultado esperas obtener con la asesoría?',
+  ];
+}
+
+function extractQuestions(botMessages: string[]): string[] {
+  const candidates = botMessages
+    .flatMap((text) => text.split(/\n+/))
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .filter((line) => /\?$/.test(line) || /^\d+[).:-]?\s+/.test(line));
+
+  const cleaned = candidates.map((line) => {
+    const withoutPrefix = line.replace(/^\d+[).:-]?\s*/, '').replace(/^[-•]\s*/, '');
+    const phrase = toSummaryPhrase(withoutPrefix);
+    return phrase.endsWith('?') ? phrase : `${phrase}?`;
+  });
+
+  return uniqueStrings(cleaned).slice(0, 3);
+}
+
+function extractOrientationBullets(botMessages: string[]): string[] {
+  const candidates = botMessages
+    .flatMap((text) => text.split(/\n+/))
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .filter((line) => /^[-•]\s+/.test(line) || /^\d+[).:-]?\s+/.test(line));
+
+  const cleaned = candidates
+    .map((line) => line.replace(/^[-•]\s*/, '').replace(/^\d+[).:-]?\s*/, ''))
+    .map((line) => toSummaryPhrase(line, 180));
+
+  return uniqueStrings(cleaned).slice(0, 4);
+}
+
 export function segmentConsultationsByMarkers(input: {
   conversationId: string;
   messages: ChatbotMessageItem[];
@@ -240,17 +325,48 @@ export function buildConsultationSummary(segment: ChatbotConsultationSegment): s
     .map((text) => toSummaryPhrase(text))
     .find((text) => text.length >= 40);
 
-  const parts: string[] = [`El usuario consultó lo siguiente: ${userMain}.`];
+  const caseType = pickCaseType(userMain);
+  const extractedQuestions = extractQuestions(botMessages);
+  const extractedOrientation = extractOrientationBullets(botMessages);
+  const orientationBullets = extractedOrientation.length > 0
+    ? extractedOrientation
+    : [
+      'Reunir los datos clave del caso (hechos, fechas y personas involucradas).',
+      'Definir el objetivo principal de la consulta para orientar la ruta de acción.',
+    ];
+  const questions = extractedQuestions.length > 0
+    ? extractedQuestions
+    : fallbackQuestionsByCase(caseType);
 
-  if (userDetails.length > 0) {
-    parts.push(`Como contexto adicional, indicó ${userDetails.join('; ')}.`);
-  }
+  const analysisContext = userDetails.length > 0
+    ? `\nContexto adicional: ${userDetails.join('; ')}.`
+    : '';
 
-  if (botMain) {
-    parts.push(`SOF-IA brindó una orientación preliminar indicando ${botMain}.`);
-  }
+  const orientationIntro = botMain
+    ? `\n\nSOF-IA brindó una orientación preliminar indicando: ${botMain}`
+    : '';
 
-  return parts.join(' ');
+  return [
+    '📌 Resumen Generado por IA',
+    '',
+    '🟢 Análisis del Caso',
+    `El usuario consultó: "${userMain}".${analysisContext}${orientationIntro}`,
+    '',
+    '📂 Orientación Inicial',
+    ...orientationBullets.map((item) => `• ${item}`),
+    '',
+    '❓ Preguntas Clave para Avanzar',
+    ...questions.map((item, index) => `${index + 1}. ${item}`),
+    '',
+    '⚠️ Nota Importante',
+    'Esta orientación es preliminar y no reemplaza la atención presencial del Consultorio Jurídico.',
+    '',
+    '➡️ ¿Qué deseas hacer ahora?',
+    '• Para realizar otra consulta, escribe: reset',
+    '• Para agendar una cita, escribe: si, deseo agendar una cita',
+    '• Si ya tienes una cita, puedes escribir: reprogramar cita o cancelar cita',
+    '• Para finalizar la conversación, escribe: salir',
+  ].join('\n');
 }
 
 export function extractConsultationContentMessages(messages: ChatbotMessageItem[]): ChatbotMessageItem[] {
