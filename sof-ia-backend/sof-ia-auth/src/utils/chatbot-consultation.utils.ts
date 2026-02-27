@@ -128,10 +128,15 @@ function isLowValueBotGuidance(text: string): boolean {
   if (normalized.includes('estamos analizando tu consulta')) return true;
   if (normalized.includes('indicame primero el tipo de caso')) return true;
   if (normalized.includes('indícame primero el tipo de caso')) return true;
+  if (normalized.includes('necesito algunos datos puntuales')) return true;
+  if (normalized.includes('respondeme estas preguntas')) return true;
+  if (normalized.includes('respóndeme estas preguntas')) return true;
   if (normalized.includes('que deseas hacer ahora')) return true;
   if (normalized.includes('qué deseas hacer ahora')) return true;
   if (normalized.includes('escribe reset')) return true;
   if (normalized.includes('si deseas agendar una cita')) return true;
+  if (normalized.includes('reprogramar cita')) return true;
+  if (normalized.includes('cancelar cita')) return true;
   if (normalized.includes('para finalizar la conversacion')) return true;
   return false;
 }
@@ -149,8 +154,14 @@ function pickBestBotGuidance(botMessages: string[]): string | undefined {
     .map((text) => {
       const normalized = normalizeInput(text);
       let score = Math.min(120, text.length);
+      if (normalized.includes('lo que el documento respalda')) score += 120;
+      if (normalized.includes('tipo de caso')) score += 30;
+      if (normalized.includes('hay que aportar') || normalized.includes('debe relatar')) score += 50;
+      if (normalized.includes('no indica si') || normalized.includes('no podra') || normalized.includes('no podrá')) score += 20;
       if (normalized.includes('con lo que') || normalized.includes('puedes empezar')) score += 50;
       if (normalized.includes('ruta') || normalized.includes('reunir') || normalized.includes('orientacion preliminar')) score += 25;
+      if (normalized.includes('necesito algunos datos puntuales')) score -= 120;
+      if (normalized.includes('respondeme estas preguntas') || normalized.includes('respóndeme estas preguntas')) score -= 80;
       if (/\b1\)|\b2\)|\b3\)/.test(text)) score += 10;
       return { text, score };
     })
@@ -244,6 +255,7 @@ function extractQuestions(botMessages: string[]): string[] {
     .flatMap((text) => text.split(/\n+/))
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
+    .filter((line) => !isLowValueBotGuidance(line))
     .filter((line) => /\?$/.test(line) || /^\d+[).:-]?\s+/.test(line));
 
   const cleaned = candidates.map((line) => {
@@ -275,6 +287,7 @@ function extractOrientationBullets(botMessages: string[]): string[] {
     .flatMap((text) => text.split(/\n+/))
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
+    .filter((line) => !isLowValueBotGuidance(line))
     .filter((line) => /^[-•]\s+/.test(line) || /^\d+[).:-]?\s+/.test(line));
 
   const cleaned = candidates
