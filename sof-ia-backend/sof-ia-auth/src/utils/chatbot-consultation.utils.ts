@@ -167,6 +167,31 @@ function fallbackQuestionsByCase(caseType: 'familia' | 'laboral' | 'penal' | 'ge
   ];
 }
 
+function orientationByCase(caseType: 'familia' | 'laboral' | 'penal' | 'general'): string[] {
+  if (caseType === 'familia') {
+    return [
+      'Reunir documentos clave (registro civil, pruebas de convivencia o de la situación actual).',
+      'Definir si se buscará conciliación o demanda según el objetivo principal (divorcio, custodia o alimentos).',
+    ];
+  }
+  if (caseType === 'laboral') {
+    return [
+      'Reunir soportes del vínculo laboral (contrato, desprendibles, comunicaciones, incapacidades).',
+      'Definir si la ruta inicial será reclamación directa, conciliación o acción judicial según el incumplimiento.',
+    ];
+  }
+  if (caseType === 'penal') {
+    return [
+      'Organizar cronología de hechos con fecha, lugar y personas involucradas.',
+      'Conservar evidencia disponible y evaluar ruta de denuncia o medidas de protección según el riesgo.',
+    ];
+  }
+  return [
+    'Precisar los hechos principales con fechas y personas involucradas.',
+    'Definir el objetivo jurídico para orientar la ruta inicial de acción.',
+  ];
+}
+
 function extractQuestions(botMessages: string[]): string[] {
   const candidates = botMessages
     .flatMap((text) => text.split(/\n+/))
@@ -321,30 +346,24 @@ export function buildConsultationSummary(segment: ChatbotConsultationSegment): s
     .map((text) => toSummaryPhrase(text))
     .filter((text) => text.length > 0 && text !== userMain);
 
+  const hasTechnicalFallback = botMessages.some((text) => normalizeInput(text).includes('no pude consultar la base juridica'));
   const botMain = botMessages
-    .map((text) => toSummaryPhrase(text))
-    .find((text) => text.length >= 40);
+    .map((text) => toSummaryPhrase(text, 220))
+    .find((text) => text.length >= 40 && !normalizeInput(text).includes('que deseas hacer ahora'));
 
   const caseType = pickCaseType(userMain);
-  const extractedQuestions = extractQuestions(botMessages);
-  const extractedOrientation = extractOrientationBullets(botMessages);
-  const orientationBullets = extractedOrientation.length > 0
-    ? extractedOrientation
-    : [
-      'Reunir los datos clave del caso (hechos, fechas y personas involucradas).',
-      'Definir el objetivo principal de la consulta para orientar la ruta de acción.',
-    ];
-  const questions = extractedQuestions.length > 0
-    ? extractedQuestions
-    : fallbackQuestionsByCase(caseType);
+  const orientationBullets = orientationByCase(caseType);
+  const questions = fallbackQuestionsByCase(caseType);
 
   const analysisContext = userDetails.length > 0
     ? `\nContexto adicional: ${userDetails.join('; ')}.`
     : '';
 
-  const orientationIntro = botMain
-    ? `\n\nSOF-IA brindó una orientación preliminar indicando: ${botMain}`
-    : '';
+  const orientationIntro = hasTechnicalFallback
+    ? '\n\nSOF-IA brindó una orientación preliminar indicando que, debido a un problema técnico, no fue posible consultar la base jurídica en ese momento. Mientras se restablece el sistema, se compartió una guía inicial.'
+    : botMain
+      ? `\n\nSOF-IA brindó una orientación preliminar indicando: ${botMain}`
+      : '\n\nSOF-IA brindó una orientación preliminar para definir una ruta inicial del caso.';
 
   return [
     '📌 Resumen Generado por IA',
