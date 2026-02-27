@@ -166,9 +166,9 @@ const WebChatPage: React.FC<WebChatPageProps> = ({ publicMode = false }) => {
               size="md"
               onClick={handleReset}
               onMouseDown={(event) => event.preventDefault()}
-              className="h-11 border border-[#C9A227]/45 bg-[#1A1F71]/70 text-[#FFCD00] hover:bg-[#222A8A]"
+              className="group h-11 rounded-xl border border-[#C9A227]/45 bg-gradient-to-r from-[#1A1F71]/95 to-[#2D35A5]/95 px-4 text-[#FFCD00] shadow-[0_8px_20px_rgba(9,13,44,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:from-[#222A8A] hover:to-[#3D45B8] hover:text-[#FFE58A] focus-visible:ring-2 focus-visible:ring-[#C9A227]/70"
             >
-              <RotateCcw className="h-4 w-4" />
+              <RotateCcw className="h-4 w-4 transition-transform duration-200 group-hover:-rotate-12" />
               Reiniciar
             </Button>
           </div>
