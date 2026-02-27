@@ -20,6 +20,26 @@ function resolveMeetLink(cita: Cita): string {
   return String(cita.enlaceReunion || '').trim();
 }
 
+function getAdminRecipients(adminCorreo?: string): string[] {
+  const fromPayload = String(adminCorreo || '').trim();
+  const fromEnv = String(process.env.ADMIN_NOTIFICATION_EMAILS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const dedup = new Set<string>();
+  const recipients: string[] = [];
+
+  for (const email of [fromPayload, ...fromEnv]) {
+    const normalized = email.toLowerCase();
+    if (!normalized || dedup.has(normalized)) continue;
+    dedup.add(normalized);
+    recipients.push(email);
+  }
+
+  return recipients;
+}
+
 export const notificationService = {
   async enviarNotificacionCita(data: NotificacionData): Promise<void> {
     const { cita, datosUsuario, adminCorreo, resumenConversacion } = data;
@@ -29,19 +49,23 @@ export const notificationService = {
       month: 'long',
       day: 'numeric',
     });
-
     const contenido = this.generarContenidoNotificacion(cita, datosUsuario, resumenConversacion);
 
-    // Notificar al admin
-    if (adminCorreo) {
+    // Enviar notificacion de cita y resumen al admin
+    for (const to of getAdminRecipients(adminCorreo)) {
       await this.enviarCorreo({
-        to: adminCorreo,
+        to,
         subject: `📅 Nueva Cita Agendada - ${cita.estudiante.nombre}`,
         html: contenido.admin,
       });
+      await this.enviarCorreo({
+        to,
+        subject: `💬 Resumen de conversación - ${cita.estudiante.nombre}`,
+        html: contenido.resumen,
+      });
     }
 
-    // Notificar al usuario
+    // Notificación de cita solo al usuario
     if (datosUsuario.correo) {
       await this.enviarCorreo({
         to: datosUsuario.correo,
@@ -50,12 +74,17 @@ export const notificationService = {
       });
     }
 
-    // Notificar al estudiante
+    // Enviar notificacion de cita y resumen al estudiante
     if (cita.estudiante.correo) {
       await this.enviarCorreo({
         to: cita.estudiante.correo,
         subject: `📅 Nueva Cita Asignada - ${fechaFormateada}`,
         html: contenido.estudiante,
+      });
+      await this.enviarCorreo({
+        to: cita.estudiante.correo,
+        subject: '💬 Resumen de tu conversación con SOF-IA',
+        html: contenido.resumen,
       });
     }
 
@@ -75,13 +104,18 @@ export const notificationService = {
 
     const enlaceReunion = esVirtual ? resolveMeetLink(cita) : '';
 
-    // Sección de resumen de conversación (solo para estudiante)
+    // Sección de resumen de conversación
     const seccionResumen = resumenConversacion ? `
       <div style="background: #FEF3C7; padding: 15px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #F59E0B;">
         <h3 style="margin-top: 0; color: #F59E0B; font-size: 16px;">💬 Resumen de tu conversación con SOF-IA</h3>
         <p style="font-size: 14px; line-height: 1.6; white-space: pre-line;">${resumenConversacion}</p>
       </div>
-    ` : '';
+    ` : `
+      <div style="background: #F3F4F6; padding: 15px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #6B7280;">
+        <h3 style="margin-top: 0; color: #374151; font-size: 16px;">💬 Resumen de conversación</h3>
+        <p style="font-size: 14px; line-height: 1.6;">No se registró un resumen de conversación para esta cita.</p>
+      </div>
+    `;
 
     // Contenido para Admin
     const admin = `
@@ -173,7 +207,19 @@ export const notificationService = {
       </div>
     `;
 
-    return { admin, usuario, estudiante };
+    // Resumen compartido para admin y estudiante
+    const resumen = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #4F46E5;">💬 Resumen de conversación</h2>
+        <p><strong>Estudiante:</strong> ${cita.estudiante.nombre}</p>
+        <p><strong>Usuario:</strong> ${datosUsuario.nombre}</p>
+        ${seccionResumen}
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+        <p style="color: #999; font-size: 12px;">Consultorio Jurídico SOF-IA - Universidad</p>
+      </div>
+    `;
+
+    return { admin, usuario, estudiante, resumen };
   },
 
   detectarTipoCorreo(correo: string): 'MICROSOFT' | 'GMAIL' | 'OTRO' {
@@ -286,9 +332,9 @@ export const notificationService = {
       });
     }
 
-    if (adminCorreo) {
+    for (const to of getAdminRecipients(adminCorreo)) {
       await this.enviarCorreo({
-        to: adminCorreo,
+        to,
         subject: '❌ Cita Cancelada',
         html: htmlUsuario,
       });
@@ -342,9 +388,9 @@ export const notificationService = {
       });
     }
 
-    if (adminCorreo) {
+    for (const to of getAdminRecipients(adminCorreo)) {
       await this.enviarCorreo({
-        to: adminCorreo,
+        to,
         subject: '📅 Cita Reprogramada',
         html,
       });

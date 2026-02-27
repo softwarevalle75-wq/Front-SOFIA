@@ -20,10 +20,18 @@ function sanitizeHeaderValue(value: string): string {
   return String(value || '').replace(/[\r\n]+/g, ' ').trim();
 }
 
+function encodeMimeWordUtf8(value: string): string {
+  const clean = sanitizeHeaderValue(value);
+  if (!clean) return '';
+
+  const base64 = Buffer.from(clean, 'utf8').toString('base64');
+  return `=?UTF-8?B?${base64}?=`;
+}
+
 export const googleGmailService = {
   async sendEmail(params: { to: string; subject: string; html: string }): Promise<void> {
     const to = sanitizeHeaderValue(params.to);
-    const subject = sanitizeHeaderValue(params.subject);
+    const subject = encodeMimeWordUtf8(params.subject);
     const html = String(params.html || '');
 
     if (!to) throw new Error('No se proporcionó destinatario para correo Gmail API.');
