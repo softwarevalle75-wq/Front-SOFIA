@@ -33,16 +33,14 @@ const ChannelButton: React.FC<ChannelButtonProps> = ({
 }) => {
   const styleByType = {
     web: {
-      container:
-        'border-indigo-200 bg-gradient-to-r from-indigo-50 to-sky-50 hover:border-indigo-400 hover:shadow-indigo-100 dark:border-indigo-800/70 dark:from-indigo-950/50 dark:to-slate-900 dark:hover:border-indigo-500',
-      iconWrap: 'bg-indigo-600 text-white dark:bg-indigo-500',
-      text: 'text-indigo-700 dark:text-indigo-300',
+      tile:
+        'border-indigo-200 bg-gradient-to-br from-indigo-50 to-sky-100 text-indigo-700 hover:border-indigo-400 hover:shadow-indigo-100 dark:border-indigo-800/70 dark:from-indigo-950/60 dark:to-slate-900 dark:text-indigo-300 dark:hover:border-indigo-500',
+      label: 'text-indigo-700 dark:text-indigo-300',
     },
     telegram: {
-      container:
-        'border-sky-200 bg-gradient-to-r from-sky-50 to-cyan-50 hover:border-sky-400 hover:shadow-sky-100 dark:border-sky-800/70 dark:from-sky-950/50 dark:to-slate-900 dark:hover:border-sky-500',
-      iconWrap: 'bg-sky-500 text-white dark:bg-sky-500',
-      text: 'text-sky-700 dark:text-sky-300',
+      tile:
+        'border-sky-200 bg-gradient-to-br from-sky-50 to-cyan-100 text-sky-700 hover:border-sky-400 hover:shadow-sky-100 dark:border-sky-800/70 dark:from-sky-950/60 dark:to-slate-900 dark:text-sky-300 dark:hover:border-sky-500',
+      label: 'text-sky-700 dark:text-sky-300',
     },
   } as const;
 
@@ -52,17 +50,15 @@ const ChannelButton: React.FC<ChannelButtonProps> = ({
     <button
       type="button"
       onClick={onClick}
-      className={`group w-full rounded-xl border px-4 py-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 ${styles.container}`}
+      className="group flex w-full flex-col items-center gap-2 text-center transition-all duration-200 focus:outline-none"
+      aria-label={`Abrir ${title}`}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className={`flex h-11 w-11 items-center justify-center rounded-lg shadow-sm ${styles.iconWrap}`}>
-            {icon}
-          </div>
-          <p className={`text-base font-semibold ${styles.text}`}>{title}</p>
-        </div>
-        <ExternalLink className={`h-4 w-4 ${styles.text}`} />
+      <div
+        className={`flex h-24 w-full items-center justify-center rounded-2xl border shadow-sm transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-lg group-focus-visible:ring-2 group-focus-visible:ring-indigo-500 group-focus-visible:ring-offset-2 dark:group-focus-visible:ring-offset-gray-900 ${styles.tile}`}
+      >
+        <span className="flex items-center justify-center text-current">{icon}</span>
       </div>
+      <p className={`text-sm font-semibold ${styles.label}`}>{title}</p>
     </button>
   );
 };
@@ -107,17 +103,17 @@ const ChatAccessButton: React.FC<ChatAccessButtonProps> = ({ className = '' }) =
       </Button>
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Selecciona un canal" footer={modalFooter} size="md">
-        <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
           <ChannelButton
             title="Chatbot"
-            icon={<Globe className="h-5 w-5" />}
+            icon={<Globe className="h-9 w-9" />}
             onClick={() => openExternalLink(publicChatbotUrl)}
             styleType="web"
           />
 
           <ChannelButton
             title="Telegram"
-            icon={<TelegramIcon className="h-5 w-5" />}
+            icon={<TelegramIcon className="h-9 w-9" />}
             onClick={() => openExternalLink(telegramBotUrl)}
             styleType="telegram"
           />
