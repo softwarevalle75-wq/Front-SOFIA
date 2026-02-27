@@ -8,12 +8,16 @@ import { useTheme } from '@/components/layout/MainLayout';
 interface ChatFiltersComponentProps {
   filters: ChatFilters;
   onFiltersChange: (filters: ChatFilters) => void;
+  onApplyFilters?: () => void;
+  onClearFilters?: () => void;
   loading?: boolean;
 }
 
 const ChatFiltersComponent: React.FC<ChatFiltersComponentProps> = ({
   filters,
   onFiltersChange,
+  onApplyFilters,
+  onClearFilters,
   loading = false
 }) => {
   const { isDarkMode } = useTheme();
@@ -21,12 +25,12 @@ const ChatFiltersComponent: React.FC<ChatFiltersComponentProps> = ({
 
   const casosLegales = [
     { value: '', label: 'Todos los casos' },
-    { value: 'DERECHO_FAMILIA', label: 'Derecho de Familia' },
-    { value: 'DERECHO_LABORAL', label: 'Derecho Laboral' },
-    { value: 'DERECHO_CIVIL', label: 'Derecho Civil' },
-    { value: 'DERECHO_PENAL', label: 'Derecho Penal' },
-    { value: 'DERECHO_COMERCIAL', label: 'Derecho Comercial' },
-    { value: 'DERECHO_ADMINISTRATIVO', label: 'Derecho Administrativo' }
+    { value: 'familia', label: 'Derecho de Familia' },
+    { value: 'laboral', label: 'Derecho Laboral' },
+    { value: 'civil', label: 'Derecho Civil' },
+    { value: 'penal', label: 'Derecho Penal' },
+    { value: 'comercial', label: 'Derecho Comercial' },
+    { value: 'administrativo', label: 'Derecho Administrativo' }
   ];
 
   const handleFilterChange = (field: keyof ChatFilters, value: any) => {
@@ -38,10 +42,11 @@ const ChatFiltersComponent: React.FC<ChatFiltersComponentProps> = ({
 
   const clearFilters = () => {
     onFiltersChange({});
+    onClearFilters?.();
   };
 
   const applyFilters = () => {
-    onFiltersChange(filters);
+    onApplyFilters?.();
   };
 
   const labelClass = isDarkMode 
@@ -160,8 +165,8 @@ const ChatFiltersComponent: React.FC<ChatFiltersComponentProps> = ({
                 className={`w-full px-3 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 font-opensans ${selectClass}`}
               >
                 <option value="">Todos los estados</option>
-                <option value="leído">Leído</option>
-                <option value="no leído">No leído</option>
+                <option value="leido">Leído</option>
+                <option value="no_leido">No leído</option>
               </select>
             </div>
           </div>
@@ -210,7 +215,7 @@ const ChatFiltersComponent: React.FC<ChatFiltersComponentProps> = ({
             <span className={`inline-flex items-center px-2 py-1 text-xs rounded-full ${
               isDarkMode ? 'bg-green-900/50 text-green-300' : 'bg-green-100 text-green-700'
             }`}>
-              Caso: {filters.casoLegal.replace('_', ' ')}
+              Caso: {filters.casoLegal.charAt(0).toUpperCase() + filters.casoLegal.slice(1)}
             </span>
           )}
           {filters.consultorioJuridico && (
@@ -224,7 +229,7 @@ const ChatFiltersComponent: React.FC<ChatFiltersComponentProps> = ({
             <span className={`inline-flex items-center px-2 py-1 text-xs rounded-full ${
               isDarkMode ? 'bg-indigo-900/50 text-indigo-300' : 'bg-yellow-100 text-yellow-700'
             }`}>
-              Estado: {filters.estado}
+              Estado: {filters.estado === 'no_leido' ? 'No leído' : 'Leído'}
             </span>
           )}
         </div>

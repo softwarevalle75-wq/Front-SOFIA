@@ -45,7 +45,6 @@ const ChatHistoryPage: React.FC = () => {
   const [selectedChat, setSelectedChat] = useState<ChatHistory | undefined>(undefined);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   const [mostrarTodo, setMostrarTodo] = useState(false);
-  const [filteredHistory, setFilteredHistory] = useState<ConversacionAPI[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
   const [pagination, setPagination] = useState<PaginationInfo>({
     page: 1,
@@ -54,20 +53,32 @@ const ChatHistoryPage: React.FC = () => {
     totalPages: 0
   });
 
-  const loadConversaciones = async (page = 1) => {
+  const loadConversaciones = async (
+    page = 1,
+    options?: {
+      search?: string;
+      filters?: ChatFiltersType;
+      mostrarTodo?: boolean;
+    }
+  ) => {
     setLoading(true);
     setErrorMessage('');
     try {
+      const activeSearch = options?.search ?? searchQuery;
+      const activeFilters = options?.filters ?? filters;
+      const activeMostrarTodo = options?.mostrarTodo ?? mostrarTodo;
+
       const params = new URLSearchParams();
       params.append('origen', 'chatbot');
       params.append('page', page.toString());
-      params.append('pageSize', mostrarTodo ? '1000' : pagination.pageSize.toString());
+      params.append('pageSize', activeMostrarTodo ? '1000' : pagination.pageSize.toString());
       
-      if (searchQuery) params.append('search', searchQuery);
-      if (filters.estado) params.append('estado', filters.estado);
-      if (filters.casoLegal) params.append('canal', filters.casoLegal);
-      if (filters.fechaInicio) params.append('fechaInicio', filters.fechaInicio);
-      if (filters.fechaFin) params.append('fechaFin', filters.fechaFin);
+      if (activeSearch) params.append('search', activeSearch);
+      if (activeFilters.estado) params.append('estado', activeFilters.estado);
+      if (activeFilters.casoLegal) params.append('tipoCaso', activeFilters.casoLegal);
+      if (activeFilters.consultorioJuridico) params.append('consultorioJuridico', activeFilters.consultorioJuridico);
+      if (activeFilters.fechaInicio) params.append('fechaInicio', activeFilters.fechaInicio);
+      if (activeFilters.fechaFin) params.append('fechaFin', activeFilters.fechaFin);
 
       const response = await apiService.get<{
         success: boolean;
@@ -77,61 +88,40 @@ const ChatHistoryPage: React.FC = () => {
 
       if (response.success && response.data) {
         setChatHistory(response.data);
-        setFilteredHistory(response.data);
         if (response.pagination) {
           setPagination(response.pagination);
         }
       } else {
         setChatHistory([]);
-        setFilteredHistory([]);
         setErrorMessage('No fue posible obtener conversaciones desde la base de datos.');
       }
     } catch (error) {
       console.error('Error loading conversaciones:', error);
       setChatHistory([]);
-      setFilteredHistory([]);
       setErrorMessage('Error de conexion con el backend. Verifica que sof-ia-auth este corriendo.');
     } finally {
       setLoading(false);
     }
   };
 
-  const aplicarFiltros = () => {
-    let filtered = [...chatHistory];
-
-    if (searchQuery) {
-      filtered = filtered.filter(chat => 
-        chat.temaLegal.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        chat.estudiante?.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (chat.primerMensaje && chat.primerMensaje.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (chat.consultorio && chat.consultorio.toLowerCase().includes(searchQuery.toLowerCase()))
-      );
-    }
-
-    if (filters.casoLegal) {
-      filtered = filtered.filter(chat => chat.canal === filters.casoLegal);
-    }
-
-    if (filters.consultorioJuridico) {
-      filtered = filtered.filter(chat => 
-        chat.consultorio?.toLowerCase().includes(filters.consultorioJuridico!.toLowerCase())
-      );
-    }
-
-    if (filters.estado) {
-      filtered = filtered.filter(chat => chat.estado === filters.estado);
-    }
-
-    setFilteredHistory(filtered);
-  };
-
   const handleFiltersChange = (newFilters: ChatFiltersType) => {
     setFilters(newFilters);
   };
 
+  const handleApplyFilters = () => {
+    loadConversaciones(1, { filters });
+  };
+
+  const handleClearFilters = () => {
+    const emptyFilters: ChatFiltersType = {};
+    setFilters(emptyFilters);
+    loadConversaciones(1, { filters: emptyFilters });
+  };
+
   const handleToggleVerTodo = () => {
-    setMostrarTodo(!mostrarTodo);
-    loadConversaciones(1);
+    const nextMostrarTodo = !mostrarTodo;
+    setMostrarTodo(nextMostrarTodo);
+    loadConversaciones(1, { mostrarTodo: nextMostrarTodo });
   };
 
   const handleViewSummary = (chat: ConversacionAPI) => {
@@ -164,7 +154,6 @@ const ChatHistoryPage: React.FC = () => {
       }
 
       setChatHistory((prev) => prev.filter((item) => item.id !== chat.id));
-      setFilteredHistory((prev) => prev.filter((item) => item.id !== chat.id));
     } catch (_error) {
       setErrorMessage('Error al eliminar la consulta. Intenta nuevamente.');
     }
@@ -196,10 +185,6 @@ const ChatHistoryPage: React.FC = () => {
   useEffect(() => {
     loadConversaciones();
   }, []);
-
-  useEffect(() => {
-    aplicarFiltros();
-  }, [searchQuery, filters, chatHistory]);
 
   const columns: TableColumn<ConversacionAPI>[] = [
     {
@@ -309,6 +294,8 @@ const ChatHistoryPage: React.FC = () => {
       <ChatFilters
         filters={filters}
         onFiltersChange={handleFiltersChange}
+        onApplyFilters={handleApplyFilters}
+        onClearFilters={handleClearFilters}
         loading={loading}
       />
 
@@ -328,7 +315,7 @@ const ChatHistoryPage: React.FC = () => {
           className="flex items-center gap-1"
         >
           <Filter className="w-4 h-4" />
-          {mostrarTodo ? `Ocultar (${filteredHistory.length})` : `Ver todo (${filteredHistory.length})`}
+          {mostrarTodo ? `Ocultar (${chatHistory.length})` : `Ver todo (${chatHistory.length})`}
         </Button>
       </div>
 
@@ -344,10 +331,10 @@ const ChatHistoryPage: React.FC = () => {
         )}
         <Table
           columns={columns}
-          data={filteredHistory}
+          data={chatHistory}
           loading={loading}
           emptyMessage="No se encontraron conversaciones con los filtros aplicados"
-          pageSize={mostrarTodo ? filteredHistory.length : pagination.pageSize}
+          pageSize={mostrarTodo ? Math.max(1, chatHistory.length) : pagination.pageSize}
           currentPage={1}
           totalItems={pagination.total}
           onPageChange={(page) => loadConversaciones(page)}
