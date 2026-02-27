@@ -6,9 +6,20 @@ const prisma = new PrismaClient();
 const BOGOTA_TZ_OFFSET = '-05:00';
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
+function buildHalfHourSlots(startHour: number, endHourInclusive: number): string[] {
+  const slots: string[] = [];
+  for (let hour = startHour; hour <= endHourInclusive; hour += 1) {
+    slots.push(`${String(hour).padStart(2, '0')}:00`);
+    if (hour < endHourInclusive) {
+      slots.push(`${String(hour).padStart(2, '0')}:30`);
+    }
+  }
+  return slots;
+}
+
 const MODALIDAD_SLOTS: Record<Modalidad, string[]> = {
-  PRESENCIAL: ['13:00', '14:00', '15:00', '16:00', '17:00'],
-  VIRTUAL: ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'],
+  PRESENCIAL: buildHalfHourSlots(13, 17),
+  VIRTUAL: buildHalfHourSlots(8, 17),
 };
 
 const MODALIDAD_DAILY_CAP: Record<Modalidad, number> = {
@@ -28,6 +39,7 @@ type ChatbotStoredAppointment = {
   status: 'agendada' | 'cancelada';
   day: string;
   hour24: number;
+  minute: 0 | 30;
   updatedAt: string;
 };
 
@@ -42,19 +54,22 @@ function parseChatbotAppointmentsFromProfile(profile: any): ChatbotStoredAppoint
       const status = String(item?.status || 'agendada').toLowerCase();
       const day = String(item?.day || '').toLowerCase();
       const hour24 = typeof item?.hour24 === 'number' ? item.hour24 : Number.NaN;
+      const minuteRaw = typeof item?.minute === 'number' ? item.minute : 0;
       const updatedAt = typeof item?.updatedAt === 'string' ? item.updatedAt : '';
 
       const validMode = mode === 'presencial' || mode === 'virtual';
       const validStatus = status === 'agendada' || status === 'cancelada';
       const validDay = ['lunes', 'martes', 'miercoles', 'miércoles', 'jueves', 'viernes'].includes(day);
       const validHour = Number.isFinite(hour24) && hour24 >= 0 && hour24 <= 23;
-      if (!validMode || !validStatus || !validDay || !validHour || !updatedAt) return null;
+      const validMinute = minuteRaw === 0 || minuteRaw === 30;
+      if (!validMode || !validStatus || !validDay || !validHour || !validMinute || !updatedAt) return null;
 
       return {
         mode,
         status,
         day,
         hour24,
+        minute: minuteRaw as 0 | 30,
         updatedAt,
       } as ChatbotStoredAppointment;
     })
@@ -62,7 +77,7 @@ function parseChatbotAppointmentsFromProfile(profile: any): ChatbotStoredAppoint
 
   const dedup = new Map<string, ChatbotStoredAppointment>();
   for (const item of parsed) {
-    const key = `${item.updatedAt}|${item.day}|${item.hour24}|${item.mode}|${item.status}`;
+    const key = `${item.updatedAt}|${item.day}|${item.hour24}|${item.minute}|${item.mode}|${item.status}`;
     if (!dedup.has(key)) dedup.set(key, item);
   }
 
@@ -88,7 +103,7 @@ async function fetchChatbotAppointmentStats() {
     const profile = row.contextData?.profile || {};
     const appointments = parseChatbotAppointmentsFromProfile(profile);
     for (const item of appointments) {
-      const key = `${row.conversationId}|${item.updatedAt}|${item.day}|${item.hour24}|${item.mode}|${item.status}`;
+      const key = `${row.conversationId}|${item.updatedAt}|${item.day}|${item.hour24}|${item.minute}|${item.mode}|${item.status}`;
       if (!unique.has(key)) unique.set(key, item);
     }
   }
@@ -108,15 +123,15 @@ async function fetchChatbotAppointmentStats() {
 function normalizeHora(hora: string): string {
   const trimmed = String(hora || '').trim();
   const match = /^(\d{1,2})(?::(\d{2}))?$/.exec(trimmed);
-  if (!match) throw new CitaServiceError('INVALID_HOUR', 'La hora no tiene un formato válido (HH:00).');
+  if (!match) throw new CitaServiceError('INVALID_HOUR', 'La hora no tiene un formato válido (HH:00 o HH:30).');
 
   const hh = Number(match[1]);
   const mm = Number(match[2] ?? '0');
-  if (!Number.isInteger(hh) || hh < 0 || hh > 23 || mm !== 0) {
-    throw new CitaServiceError('INVALID_HOUR', 'La hora no tiene un formato válido (HH:00).');
+  if (!Number.isInteger(hh) || hh < 0 || hh > 23 || (mm !== 0 && mm !== 30)) {
+    throw new CitaServiceError('INVALID_HOUR', 'La hora no tiene un formato válido (HH:00 o HH:30).');
   }
 
-  return `${String(hh).padStart(2, '0')}:00`;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
 function formatDateInBogota(date: Date): string {

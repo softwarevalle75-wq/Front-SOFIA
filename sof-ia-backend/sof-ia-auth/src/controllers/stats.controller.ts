@@ -579,6 +579,7 @@ type ChatbotStoredAppointment = {
   status: 'agendada' | 'cancelada';
   day: string;
   hour24: number;
+  minute: 0 | 30;
   updatedAt: string;
 };
 
@@ -593,19 +594,22 @@ function parseChatbotAppointmentsFromProfile(profile: any): ChatbotStoredAppoint
       const status = String(item?.status || 'agendada').toLowerCase();
       const day = String(item?.day || '').toLowerCase();
       const hour24 = typeof item?.hour24 === 'number' ? item.hour24 : Number.NaN;
+      const minuteRaw = typeof item?.minute === 'number' ? item.minute : 0;
       const updatedAt = typeof item?.updatedAt === 'string' ? item.updatedAt : '';
 
       const validMode = mode === 'presencial' || mode === 'virtual';
       const validStatus = status === 'agendada' || status === 'cancelada';
       const validDay = ['lunes', 'martes', 'miercoles', 'miércoles', 'jueves', 'viernes'].includes(day);
       const validHour = Number.isFinite(hour24) && hour24 >= 0 && hour24 <= 23;
-      if (!validMode || !validStatus || !validDay || !validHour || !updatedAt) return null;
+      const validMinute = minuteRaw === 0 || minuteRaw === 30;
+      if (!validMode || !validStatus || !validDay || !validHour || !validMinute || !updatedAt) return null;
 
       return {
         mode,
         status,
         day,
         hour24,
+        minute: minuteRaw as 0 | 30,
         updatedAt,
       } as ChatbotStoredAppointment;
     })
@@ -613,7 +617,7 @@ function parseChatbotAppointmentsFromProfile(profile: any): ChatbotStoredAppoint
 
   const dedup = new Map<string, ChatbotStoredAppointment>();
   for (const item of parsed) {
-    const key = `${item.updatedAt}|${item.day}|${item.hour24}|${item.mode}|${item.status}`;
+    const key = `${item.updatedAt}|${item.day}|${item.hour24}|${item.minute}|${item.mode}|${item.status}`;
     if (!dedup.has(key)) dedup.set(key, item);
   }
 
@@ -640,7 +644,7 @@ async function fetchChatbotAppointmentStats(): Promise<ChatbotAppointmentAggrega
     const profile = row.contextData?.profile || {};
     const appointments = parseChatbotAppointmentsFromProfile(profile);
     for (const item of appointments) {
-      const key = `${row.conversationId}|${item.updatedAt}|${item.day}|${item.hour24}|${item.mode}|${item.status}`;
+      const key = `${row.conversationId}|${item.updatedAt}|${item.day}|${item.hour24}|${item.minute}|${item.mode}|${item.status}`;
       if (!unique.has(key)) unique.set(key, item);
     }
   }
