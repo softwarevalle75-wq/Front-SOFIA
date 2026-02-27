@@ -545,6 +545,7 @@ export const citaController = {
           INVALID_HOUR: 400,
           SLOT_NOT_AVAILABLE: 409,
           NO_ELIGIBLE_STUDENTS: 409,
+          MEET_LINK_FAILED: 502,
         };
         return res.status(statusByCode[error.code] || 400).json({ success: false, code: error.code, message: error.message });
       }
@@ -651,6 +652,7 @@ export const citaController = {
           INVALID_HOUR: 400,
           SLOT_NOT_AVAILABLE: 409,
           NOT_FOUND: 404,
+          MEET_LINK_FAILED: 502,
         };
         return res.status(statusByCode[error.code] || 400).json({ success: false, code: error.code, message: error.message });
       }
@@ -728,6 +730,7 @@ export const citaController = {
           INVALID_HOUR: 400,
           SLOT_NOT_AVAILABLE: 409,
           NO_ELIGIBLE_STUDENTS: 409,
+          MEET_LINK_FAILED: 502,
         };
         return res.status(statusByCode[error.code] || 400).json({ success: false, message: error.message });
       }
@@ -1095,6 +1098,7 @@ export const citaController = {
           INVALID_HOUR: 400,
           SLOT_NOT_AVAILABLE: 409,
           NOT_FOUND: 404,
+          MEET_LINK_FAILED: 502,
         };
         return res.status(statusByCode[error.code] || 400).json({ success: false, message: error.message });
       }

@@ -1,4 +1,5 @@
 import { EstadoCita, Modalidad, Prisma, PrismaClient } from '@prisma/client';
+import { googleCalendarService } from './google-calendar.service';
 
 const prisma = new PrismaClient();
 
@@ -186,6 +187,17 @@ function getSlotLockKey(dayKey: string, hora: string, modalidad: Modalidad): num
   return Math.abs(hash || 1);
 }
 
+function buildDateTimeFromDayAndHour(dayKey: string, hora: string): Date {
+  const normalizedHour = normalizeHora(hora);
+  return new Date(`${dayKey}T${normalizedHour}:00${BOGOTA_TZ_OFFSET}`);
+}
+
+function buildMeetSummary(modalidad: Modalidad, estudianteNombre: string): string {
+  return modalidad === 'VIRTUAL'
+    ? `Cita virtual SOF-IA - ${estudianteNombre}`
+    : `Cita SOF-IA - ${estudianteNombre}`;
+}
+
 async function getOccupiedHours(params: {
   tx: PrismaClient | Prisma.TransactionClient;
   start: Date;
@@ -223,6 +235,8 @@ async function getEligibleStudents(params: {
     },
     select: {
       id: true,
+      nombre: true,
+      correo: true,
     },
   });
 }
@@ -355,6 +369,27 @@ export const citaService = {
       }
 
       const picked = eligibleStudents[Math.floor(Math.random() * eligibleStudents.length)];
+      let enlaceReunion: string | null = null;
+
+      if (data.modalidad === 'VIRTUAL') {
+        const eventStart = buildDateTimeFromDayAndHour(range.dayKey, normalizedHora);
+        const eventEnd = new Date(eventStart.getTime() + 60 * 60 * 1000);
+        const attendees = [picked.correo, data.usuarioCorreo].filter((value): value is string => Boolean(value && value.trim()));
+
+        try {
+          const meetEvent = await googleCalendarService.createMeetEvent({
+            summary: buildMeetSummary(data.modalidad, picked.nombre),
+            description: data.motivo || 'Cita virtual del Consultorio Jurídico SOF-IA',
+            attendeeEmails: attendees,
+            start: eventStart,
+            end: eventEnd,
+          });
+          enlaceReunion = meetEvent.meetLink;
+        } catch (error) {
+          const details = error instanceof Error ? error.message : String(error);
+          throw new CitaServiceError('MEET_LINK_FAILED', `No fue posible generar el enlace de Google Meet. ${details}`);
+        }
+      }
 
       return tx.cita.create({
         data: {
@@ -369,6 +404,7 @@ export const citaService = {
           usuarioNumeroDocumento: data.usuarioNumeroDocumento,
           usuarioCorreo: data.usuarioCorreo,
           usuarioTelefono: data.usuarioTelefono,
+          enlaceReunion,
         },
         include: { estudiante: true },
       });
@@ -435,12 +471,39 @@ export const citaService = {
         throw new CitaServiceError('SLOT_NOT_AVAILABLE', 'La nueva hora seleccionada no está disponible.');
       }
 
+      let enlaceReunion = citaActual.enlaceReunion;
+      if (citaActual.modalidad === 'VIRTUAL') {
+        const estudiante = await tx.estudiante.findUnique({
+          where: { id: citaActual.estudianteId },
+          select: { nombre: true, correo: true },
+        });
+
+        const eventStart = buildDateTimeFromDayAndHour(range.dayKey, normalizedHora);
+        const eventEnd = new Date(eventStart.getTime() + 60 * 60 * 1000);
+        const attendees = [estudiante?.correo, citaActual.usuarioCorreo].filter((value): value is string => Boolean(value && value.trim()));
+
+        try {
+          const meetEvent = await googleCalendarService.createMeetEvent({
+            summary: buildMeetSummary(citaActual.modalidad, estudiante?.nombre || 'Usuario'),
+            description: citaActual.motivo || 'Cita virtual reprogramada - Consultorio Jurídico SOF-IA',
+            attendeeEmails: attendees,
+            start: eventStart,
+            end: eventEnd,
+          });
+          enlaceReunion = meetEvent.meetLink;
+        } catch (error) {
+          const details = error instanceof Error ? error.message : String(error);
+          throw new CitaServiceError('MEET_LINK_FAILED', `No fue posible regenerar el enlace de Google Meet. ${details}`);
+        }
+      }
+
       return tx.cita.update({
         where: { id },
         data: {
           fecha: range.start,
           hora: normalizedHora,
           motivo: 'Reprogramado: fecha anterior modificada',
+          enlaceReunion,
         },
         include: { estudiante: true },
       });

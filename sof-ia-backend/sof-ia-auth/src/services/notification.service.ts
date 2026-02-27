@@ -1,16 +1,5 @@
-import nodemailer from 'nodemailer';
 import { Cita, Estudiante } from '@prisma/client';
-import { createHash } from 'crypto';
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+import { googleGmailService } from './google-gmail.service';
 
 export interface DatosUsuario {
   nombre: string;
@@ -27,12 +16,8 @@ export interface NotificacionData {
   resumenConversacion?: string;
 }
 
-function buildMeetLink(cita: Cita): string {
-  const base = (process.env.MEET_BASE_URL || 'https://meet.google.com').replace(/\/$/, '');
-  const source = `${cita.id}-${new Date(cita.fecha).toISOString()}-${cita.hora}`;
-  const hash = createHash('sha1').update(source).digest('hex').slice(0, 9);
-  const token = `sofia-${hash.slice(0, 3)}-${hash.slice(3, 6)}`;
-  return `${base}/${token}`;
+function resolveMeetLink(cita: Cita): string {
+  return String(cita.enlaceReunion || '').trim();
 }
 
 export const notificationService = {
@@ -88,7 +73,7 @@ export const notificationService = {
     const esVirtual = cita.modalidad === 'VIRTUAL';
     const modalidadTexto = esVirtual ? 'VIRTUAL (Videollamada)' : 'PRESENCIAL';
 
-    const enlaceReunion = esVirtual ? buildMeetLink(cita) : '';
+    const enlaceReunion = esVirtual ? resolveMeetLink(cita) : '';
 
     // Sección de resumen de conversación (solo para estudiante)
     const seccionResumen = resumenConversacion ? `
@@ -205,13 +190,8 @@ export const notificationService = {
 
   async enviarCorreo({ to, subject, html }: { to: string; subject: string; html: string }): Promise<void> {
     try {
-      const info = await transporter.sendMail({
-        from: process.env.SMTP_FROM || '"Consultorio Jurídico" <noreply@consultorio.com>',
-        to,
-        subject,
-        html,
-      });
-      console.log(`📧 Correo enviado a ${to}: ${info.messageId}`);
+      await googleGmailService.sendEmail({ to, subject, html });
+      console.log(`📧 Correo enviado a ${to} por Gmail API`);
     } catch (error) {
       console.error(`❌ Error enviando correo a ${to}:`, error);
       throw error;
@@ -330,7 +310,7 @@ export const notificationService = {
       day: 'numeric',
     });
 
-    const enlaceReunion = cita.modalidad === 'VIRTUAL' ? buildMeetLink(cita) : '';
+    const enlaceReunion = cita.modalidad === 'VIRTUAL' ? resolveMeetLink(cita) : '';
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
