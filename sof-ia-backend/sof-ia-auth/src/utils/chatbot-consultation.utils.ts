@@ -99,16 +99,6 @@ function compactLine(text: string, maxLength = 220): string {
   return `${singleLine.slice(0, maxLength - 3)}...`;
 }
 
-function toSummaryPhrase(text: string, maxLength = 220): string {
-  const cleaned = String(text || '')
-    .replace(/[`*_~]/g, '')
-    .replace(/[•▪◦]/g, ' ')
-    .replace(/\s*[-–—]\s*/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return compactLine(cleaned, maxLength);
-}
-
 export function segmentConsultationsByMarkers(input: {
   conversationId: string;
   messages: ChatbotMessageItem[];
@@ -227,27 +217,25 @@ export function buildConsultationSummary(segment: ChatbotConsultationSegment): s
     return 'Aun no hay resumen generado para esta consulta.';
   }
 
-  const userMain = toSummaryPhrase(userMessages[0] || segment.firstUserMessage || 'una consulta legal', 240);
-  const userDetails = userMessages
-    .slice(1, 3)
-    .map((text) => toSummaryPhrase(text, 140))
-    .filter((text) => text.length > 0 && text !== userMain);
+  const userMain = userMessages[0] ? compactLine(userMessages[0], 260) : 'Sin detalle del usuario.';
+  const userDetails = userMessages.slice(1, 3).map((text) => compactLine(text, 160));
 
-  const botMain = botMessages
-    .map((text) => toSummaryPhrase(text, 220))
-    .find((text) => text.length >= 40);
+  const botKeyResponses = botMessages
+    .filter((text) => text.length >= 25)
+    .slice(0, 3)
+    .map((text) => `- ${compactLine(text, 220)}`);
 
-  const parts: string[] = [`El usuario consultó lo siguiente: ${userMain}.`];
+  const sections: string[] = [`Consulta del usuario: ${userMain}`];
 
   if (userDetails.length > 0) {
-    parts.push(`Como contexto adicional, indicó ${userDetails.join('; ')}.`);
+    sections.push(`Puntos clave del usuario: ${userDetails.join(' | ')}`);
   }
 
-  if (botMain) {
-    parts.push(`SOF-IA brindó una orientación preliminar indicando ${botMain}.`);
+  if (botKeyResponses.length > 0) {
+    sections.push(`Respuesta de SOF-IA:\n${botKeyResponses.join('\n')}`);
   }
 
-  return compactLine(parts.join(' '), 560);
+  return sections.join('\n\n');
 }
 
 export function extractConsultationContentMessages(messages: ChatbotMessageItem[]): ChatbotMessageItem[] {
