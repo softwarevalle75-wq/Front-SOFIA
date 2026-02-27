@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Users, Video, XCircle, CheckCircle, Plus, Edit, X, FileSpreadsheet, FileText, Camera } from 'lucide-react';
+import { Calendar, Clock, Users, Video, XCircle, CheckCircle, Plus, Edit, FileSpreadsheet, FileText, Camera } from 'lucide-react';
 import Button from '@/components/common/Button';
 import { ManualCita } from '@/types';
 import { CitaService } from '@/services/cita.service';
@@ -153,7 +153,7 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
         ? 'bg-gray-800 border-gray-700' 
         : 'bg-white border-gray-100'
     }`}>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col gap-4 mb-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
             isDarkMode ? 'bg-indigo-900/50' : 'bg-indigo-100'
@@ -173,19 +173,49 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
             </p>
           </div>
         </div>
-        <Button variant="primary" size="sm" onClick={onAgendarNueva}>
-          <Plus className="w-4 h-4 mr-1" />
-          Nueva Cita
-        </Button>
-        <Button variant="secondary" size="sm" onClick={handleExportExcel} title="Exportar a Excel">
-          <FileSpreadsheet className="w-4 h-4" />
-        </Button>
-        <Button variant="secondary" size="sm" onClick={handleExportPDF} title="Exportar a PDF">
-          <FileText className="w-4 h-4" />
-        </Button>
-        <Button variant="secondary" size="sm" onClick={handleExportPNG} title="Exportar a Imagen">
-          <Camera className="w-4 h-4" />
-        </Button>
+        <div className="flex flex-col gap-2 md:items-end">
+          <div className="flex flex-wrap gap-2 md:justify-end">
+            <Button variant="primary" size="sm" onClick={onAgendarNueva} aria-label="Crear nueva cita">
+              <Plus className="w-4 h-4" />
+              Nueva Cita
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-2 md:justify-end">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleExportExcel}
+              title="Exportar lista de citas a Excel"
+              aria-label="Exportar lista de citas a Excel"
+              className="min-w-[136px]"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Exportar Excel
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleExportPDF}
+              title="Exportar lista de citas a PDF"
+              aria-label="Exportar lista de citas a PDF"
+              className="min-w-[128px]"
+            >
+              <FileText className="w-4 h-4" />
+              Exportar PDF
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleExportPNG}
+              title="Exportar lista de citas a imagen"
+              aria-label="Exportar lista de citas a imagen"
+              className="min-w-[146px]"
+            >
+              <Camera className="w-4 h-4" />
+              Exportar imagen
+            </Button>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 mb-4">
