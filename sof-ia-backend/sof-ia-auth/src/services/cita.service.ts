@@ -374,7 +374,7 @@ export const citaService = {
       if (data.modalidad === 'VIRTUAL') {
         const eventStart = buildDateTimeFromDayAndHour(range.dayKey, normalizedHora);
         const eventEnd = new Date(eventStart.getTime() + 60 * 60 * 1000);
-        const attendees = [picked.correo, data.usuarioCorreo].filter((value): value is string => Boolean(value && value.trim()));
+        const attendees = [picked.correo].filter((value): value is string => Boolean(value && value.trim()));
 
         try {
           const meetEvent = await googleCalendarService.createMeetEvent({
@@ -480,7 +480,7 @@ export const citaService = {
 
         const eventStart = buildDateTimeFromDayAndHour(range.dayKey, normalizedHora);
         const eventEnd = new Date(eventStart.getTime() + 60 * 60 * 1000);
-        const attendees = [estudiante?.correo, citaActual.usuarioCorreo].filter((value): value is string => Boolean(value && value.trim()));
+        const attendees = [estudiante?.correo].filter((value): value is string => Boolean(value && value.trim()));
 
         try {
           const meetEvent = await googleCalendarService.createMeetEvent({
