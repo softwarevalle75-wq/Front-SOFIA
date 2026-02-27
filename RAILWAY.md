@@ -40,6 +40,22 @@ Create one Railway service per app below.
 
 ### sof-ia-frontend
 - Build arg / env: `VITE_API_URL=<public backend URL>/api`
+- Build arg / env: `VITE_CHATBOT_WEB_API_URL=<public chat-web URL>`
+- Build arg / env: `VITE_PUBLIC_CHATBOT_URL=<public frontend URL>/chatbot`
+- Build arg / env: `VITE_WEBCHAT_TENANT_ID=tenant_ai_demo`
+- Build arg / env: `VITE_TELEGRAM_BOT_URL=<public telegram bot URL>`
+
+### chatbot-web-service (Back_SOFIA)
+- `PORT=3060`
+- `ORCHESTRATOR_SERVICE_URL=<orchestrator internal URL>`
+- `WEBCHAT_TENANT_ID=tenant_ai_demo`
+- `REQUEST_TIMEOUT_MS=30000`
+- `CORS_ORIGIN=<public frontend URL>`
+
+## Important notes
+
+- The public webchat UI is the frontend route: `<frontend-url>/chatbot`.
+- The `chat-web` service URL is an API, not a web page. Validate it with `<chat-web-url>/health` and `POST /v1/chatbot/web/message`.
 
 ## Seed admin user
 
