@@ -36,12 +36,14 @@ export class CitaService {
     fechaInicio?: string;
     fechaFin?: string;
     estudianteId?: string;
+    origen?: 'sistema' | 'chatbot';
   }): Promise<ManualCita[]> {
     const params: Record<string, string> = {};
     
     if (filtros?.estado) params.estado = filtros.estado;
     if (filtros?.modalidad) params.modalidad = filtros.modalidad;
     if (filtros?.estudianteId) params.estudianteId = filtros.estudianteId;
+    if (filtros?.origen) params.origen = filtros.origen;
     
     const response = await apiService.get<{ success: boolean; data: any[] }>(
       API_CONFIG.ENDPOINTS.CITAS.BASE,

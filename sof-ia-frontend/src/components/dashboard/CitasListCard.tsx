@@ -35,7 +35,7 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
   const cargarCitas = async () => {
     setLoadingCitas(true);
     try {
-      const data = await CitaService.getCitas();
+      const data = await CitaService.getCitas({ origen: 'sistema' });
       setCitas(data);
     } catch (error) {
       console.error('Error loading citas:', error);
