@@ -260,7 +260,7 @@ function buildJitsiMeetingDetails(input: { citaId: string; fecha: Date | string;
 }
 
 function buildCalendarDescription(baseDescription: string, jitsi: { link: string; password: string }): string {
-  return `${baseDescription}\n\nJitsi (acceso alterno)\nEnlace: ${jitsi.link}\nContraseña: ${jitsi.password}`;
+  return `${baseDescription}\n\nIMPORTANTE: IGNORA EL BOTON \"UNETE CON GOOGLE MEET\". USA EL LINK JITSI DE ABAJO.\n\n==============================\n>>> LINK OFICIAL DE LA REUNION (JITSI) <<<\n>>> ENTRA POR ESTE LINK <<<\n${jitsi.link}\n>>> CONTRASENA <<<\n${jitsi.password}\n==============================`;
 }
 
 async function getOccupiedHours(params: {
