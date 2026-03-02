@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'crypto';
 import { EstadoCita, Modalidad, Prisma, PrismaClient } from '@prisma/client';
 import { googleCalendarService } from './google-calendar.service';
 
@@ -225,6 +226,41 @@ function buildMeetSummary(modalidad: Modalidad, estudianteNombre: string): strin
   return modalidad === 'VIRTUAL'
     ? `Cita virtual SOF-IA - ${estudianteNombre}`
     : `Cita SOF-IA - ${estudianteNombre}`;
+}
+
+function getJitsiBaseUrl(): string {
+  const base = String(process.env.JITSI_BASE_URL || 'https://meet.jit.si').trim();
+  return (base || 'https://meet.jit.si').replace(/\/+$/, '');
+}
+
+function getJitsiRoomPrefix(): string {
+  return String(process.env.JITSI_ROOM_PREFIX || 'sofia-cita').trim() || 'sofia-cita';
+}
+
+function getJitsiPasswordSecret(): string {
+  return String(process.env.JITSI_PASSWORD_SECRET || 'sofia-jitsi-default-secret').trim() || 'sofia-jitsi-default-secret';
+}
+
+function getFixedJitsiPassword(): string {
+  return String(process.env.JITSI_FIXED_PASSWORD || '').trim();
+}
+
+function buildJitsiMeetingDetails(input: { citaId: string; fecha: Date | string; hora: string }): { link: string; password: string } {
+  const fechaIso = new Date(input.fecha).toISOString();
+  const hora = String(input.hora || '').trim();
+  const source = `${input.citaId}|${fechaIso}|${hora}|${getJitsiPasswordSecret()}`;
+  const hash = createHash('sha256').update(source).digest('hex');
+  const roomName = `${getJitsiRoomPrefix()}-${hash.slice(0, 20)}`;
+  const derivedPassword = `${hash.slice(20, 24)}-${hash.slice(24, 28)}-${hash.slice(28, 32)}`.toUpperCase();
+  const password = getFixedJitsiPassword() || derivedPassword;
+  return {
+    link: `${getJitsiBaseUrl()}/${roomName}`,
+    password,
+  };
+}
+
+function buildCalendarDescription(baseDescription: string, jitsi: { link: string; password: string }): string {
+  return `${baseDescription}\n\nJitsi (acceso alterno)\nEnlace: ${jitsi.link}\nContraseña: ${jitsi.password}`;
 }
 
 async function getOccupiedHours(params: {
@@ -503,6 +539,7 @@ export const citaService = {
     }
 
     return prisma.$transaction(async (tx) => {
+      const citaId = randomUUID();
       const dayLockKey = getDayLockKey(range.dayKey, data.modalidad);
       const lockKey = getSlotLockKey(range.dayKey, normalizedHora, data.modalidad);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${dayLockKey})`;
@@ -563,6 +600,7 @@ export const citaService = {
       if (data.modalidad === 'VIRTUAL') {
         const eventStart = buildDateTimeFromDayAndHour(range.dayKey, normalizedHora);
         const eventEnd = new Date(eventStart.getTime() + 60 * 60 * 1000);
+        const jitsi = buildJitsiMeetingDetails({ citaId, fecha: range.start, hora: normalizedHora });
         const attendees = [picked.correo, data.usuarioCorreo].filter(
           (value): value is string => Boolean(value && value.trim()),
         );
@@ -570,7 +608,7 @@ export const citaService = {
         try {
           const meetEvent = await googleCalendarService.createMeetEvent({
             summary: buildMeetSummary(data.modalidad, picked.nombre),
-            description: data.motivo || 'Cita virtual del Consultorio Jurídico SOF-IA',
+            description: buildCalendarDescription(data.motivo || 'Cita virtual del Consultorio Jurídico SOF-IA', jitsi),
             attendeeEmails: attendees,
             start: eventStart,
             end: eventEnd,
@@ -584,6 +622,7 @@ export const citaService = {
 
       return tx.cita.create({
         data: {
+          id: citaId,
           estudianteId: picked.id,
           fecha: range.start,
           hora: normalizedHora,
@@ -720,6 +759,7 @@ export const citaService = {
 
         const eventStart = buildDateTimeFromDayAndHour(range.dayKey, normalizedHora);
         const eventEnd = new Date(eventStart.getTime() + 60 * 60 * 1000);
+        const jitsi = buildJitsiMeetingDetails({ citaId: citaActual.id, fecha: range.start, hora: normalizedHora });
         const attendees = [estudiante?.correo, citaActual.usuarioCorreo].filter(
           (value): value is string => Boolean(value && value.trim()),
         );
@@ -727,7 +767,10 @@ export const citaService = {
         try {
           const meetEvent = await googleCalendarService.createMeetEvent({
             summary: buildMeetSummary(citaActual.modalidad, estudiante?.nombre || 'Usuario'),
-            description: citaActual.motivo || 'Cita virtual reprogramada - Consultorio Jurídico SOF-IA',
+            description: buildCalendarDescription(
+              citaActual.motivo || 'Cita virtual reprogramada - Consultorio Jurídico SOF-IA',
+              jitsi,
+            ),
             attendeeEmails: attendees,
             start: eventStart,
             end: eventEnd,

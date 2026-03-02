@@ -104,17 +104,12 @@ export const notificationService = {
       });
     }
 
-    // Enviar notificacion de cita y resumen al estudiante
+    // Enviar notificacion de cita al estudiante
     if (cita.estudiante.correo) {
       await this.enviarCorreo({
         to: cita.estudiante.correo,
         subject: `📅 Nueva Cita Asignada - ${fechaFormateada}`,
         html: contenido.estudiante,
-      });
-      await this.enviarCorreo({
-        to: cita.estudiante.correo,
-        subject: '💬 Resumen de tu conversación con SOF-IA',
-        html: contenido.resumen,
       });
     }
 
