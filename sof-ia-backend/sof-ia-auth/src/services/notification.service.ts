@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Cita, Estudiante } from '@prisma/client';
 import { googleGmailService } from './google-gmail.service';
 
@@ -16,8 +17,37 @@ export interface NotificacionData {
   resumenConversacion?: string;
 }
 
-function resolveMeetLink(cita: Cita): string {
-  return String(cita.enlaceReunion || '').trim();
+function getJitsiBaseUrl(): string {
+  const base = String(process.env.JITSI_BASE_URL || 'https://meet.jit.si').trim();
+  return (base || 'https://meet.jit.si').replace(/\/+$/, '');
+}
+
+function getJitsiRoomPrefix(): string {
+  return String(process.env.JITSI_ROOM_PREFIX || 'sofia-cita').trim() || 'sofia-cita';
+}
+
+function getJitsiPasswordSecret(): string {
+  return String(process.env.JITSI_PASSWORD_SECRET || 'sofia-jitsi-default-secret').trim() || 'sofia-jitsi-default-secret';
+}
+
+function getFixedJitsiPassword(): string {
+  return String(process.env.JITSI_FIXED_PASSWORD || '').trim();
+}
+
+function buildJitsiMeetingDetails(input: { cita: Cita; fecha?: Date | string; hora?: string }): { link: string; password: string } {
+  const fechaIso = new Date(input.fecha || input.cita.fecha).toISOString();
+  const hora = String(input.hora || input.cita.hora || '').trim();
+  const source = `${input.cita.id}|${fechaIso}|${hora}|${getJitsiPasswordSecret()}`;
+
+  const hash = createHash('sha256').update(source).digest('hex');
+  const roomName = `${getJitsiRoomPrefix()}-${hash.slice(0, 20)}`;
+  const derivedPassword = `${hash.slice(20, 24)}-${hash.slice(24, 28)}-${hash.slice(28, 32)}`.toUpperCase();
+  const password = getFixedJitsiPassword() || derivedPassword;
+
+  return {
+    link: `${getJitsiBaseUrl()}/${roomName}`,
+    password,
+  };
 }
 
 function getAdminRecipients(adminCorreo?: string): string[] {
@@ -101,8 +131,7 @@ export const notificationService = {
 
     const esVirtual = cita.modalidad === 'VIRTUAL';
     const modalidadTexto = esVirtual ? 'VIRTUAL (Videollamada)' : 'PRESENCIAL';
-
-    const enlaceReunion = esVirtual ? resolveMeetLink(cita) : '';
+    const jitsi = esVirtual ? buildJitsiMeetingDetails({ cita }) : null;
 
     // Sección de resumen de conversación
     const seccionResumen = resumenConversacion ? `
@@ -169,7 +198,8 @@ export const notificationService = {
           <p><strong>🏢 Modalidad:</strong> ${modalidadTexto}</p>
           <p><strong>📝 Tipo de documento:</strong> ${datosUsuario.tipoDocumento}</p>
           <p><strong>📄 Número de documento:</strong> ${datosUsuario.numeroDocumento}</p>
-          ${esVirtual && enlaceReunion ? `<p><strong>🔗 Enlace de videollamada:</strong> <a href="${enlaceReunion}" style="color: #4F46E5;">${enlaceReunion}</a></p>` : ''}
+          ${jitsi ? `<p><strong>🔗 Enlace de videollamada (Jitsi):</strong> <a href="${jitsi.link}" style="color: #4F46E5;">${jitsi.link}</a></p>` : ''}
+          ${jitsi ? `<p><strong>🔐 Contraseña de acceso:</strong> ${jitsi.password}</p>` : ''}
         </div>
         
         <p><strong>📍 Dirección:</strong> Consultorio Jurídico - Universidad</p>
@@ -197,7 +227,8 @@ export const notificationService = {
           <p><strong>⏰ Hora:</strong> ${cita.hora}</p>
           <p><strong>🏢 Modalidad:</strong> ${modalidadTexto}</p>
           <p><strong>📝 Motivo:</strong> ${cita.motivo || 'No especificado'}</p>
-          ${esVirtual && enlaceReunion ? `<p><strong>🔗 Enlace de videollamada:</strong> <a href="${enlaceReunion}" style="color: #4F46E5;">${enlaceReunion}</a></p>` : ''}
+          ${jitsi ? `<p><strong>🔗 Enlace de videollamada (Jitsi):</strong> <a href="${jitsi.link}" style="color: #4F46E5;">${jitsi.link}</a></p>` : ''}
+          ${jitsi ? `<p><strong>🔐 Contraseña de acceso:</strong> ${jitsi.password}</p>` : ''}
         </div>
         
         <p>Por favor confirmar asistencia.</p>
@@ -253,6 +284,8 @@ export const notificationService = {
       day: 'numeric',
     });
 
+    const jitsi = cita.modalidad === 'VIRTUAL' ? buildJitsiMeetingDetails({ cita }) : null;
+
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #F59E0B;">⏰ Recordatorio - Tu cita es mañana</h2>
@@ -262,8 +295,10 @@ export const notificationService = {
           <li><strong>Fecha:</strong> ${fechaFormateada}</li>
           <li><strong>Hora:</strong> ${cita.hora}</li>
           <li><strong>Modalidad:</strong> ${cita.modalidad === 'VIRTUAL' ? 'Virtual' : 'Presencial'}</li>
+          ${jitsi ? `<li><strong>Enlace Jitsi:</strong> <a href="${jitsi.link}">${jitsi.link}</a></li>` : ''}
+          ${jitsi ? `<li><strong>Contraseña:</strong> ${jitsi.password}</li>` : ''}
         </ul>
-        <p>Por favor no olvides asistir.</p>
+        <p>Por favor no olvides asistir e ingresa 5 a 10 minutos antes.</p>
       </div>
     `;
 
@@ -277,6 +312,8 @@ export const notificationService = {
   async enviarRecordatorio15min(data: NotificacionData): Promise<void> {
     const { cita, datosUsuario } = data;
 
+    const jitsi = cita.modalidad === 'VIRTUAL' ? buildJitsiMeetingDetails({ cita }) : null;
+
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #EF4444;">🔔 Tu cita comienza en 15 minutos</h2>
@@ -284,6 +321,8 @@ export const notificationService = {
         <p>Tu cita comienza en <strong>15 minutos</strong>.</p>
         <p><strong>Hora:</strong> ${cita.hora}</p>
         <p><strong>Modalidad:</strong> ${cita.modalidad === 'VIRTUAL' ? 'Virtual' : 'Presencial'}</p>
+        ${jitsi ? `<p><strong>🔗 Enlace Jitsi:</strong> <a href="${jitsi.link}">${jitsi.link}</a></p>` : ''}
+        ${jitsi ? `<p><strong>🔐 Contraseña:</strong> ${jitsi.password}</p>` : ''}
       </div>
     `;
 
@@ -356,7 +395,9 @@ export const notificationService = {
       day: 'numeric',
     });
 
-    const enlaceReunion = cita.modalidad === 'VIRTUAL' ? resolveMeetLink(cita) : '';
+    const jitsi = cita.modalidad === 'VIRTUAL'
+      ? buildJitsiMeetingDetails({ cita, fecha: nuevaFecha, hora: nuevaHora })
+      : null;
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -367,7 +408,8 @@ export const notificationService = {
           <li><strong>Fecha anterior:</strong> ${fechaAnterior}</li>
           <li><strong>Nueva fecha:</strong> ${fechaNueva}</li>
           <li><strong>Nueva hora:</strong> ${nuevaHora}</li>
-          ${enlaceReunion ? `<li><strong>Enlace Meet:</strong> <a href="${enlaceReunion}">${enlaceReunion}</a></li>` : ''}
+          ${jitsi ? `<li><strong>Enlace Jitsi:</strong> <a href="${jitsi.link}">${jitsi.link}</a></li>` : ''}
+          ${jitsi ? `<li><strong>Contraseña:</strong> ${jitsi.password}</li>` : ''}
         </ul>
       </div>
     `;
