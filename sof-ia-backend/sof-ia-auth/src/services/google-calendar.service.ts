@@ -26,15 +26,15 @@ function getTimeZone(): string {
   return String(process.env.GOOGLE_CALENDAR_TIMEZONE || 'America/Bogota').trim() || 'America/Bogota';
 }
 
-function normalizeAttendees(attendeeEmails: string[]): Array<{ email: string }> {
+function normalizeAttendees(attendeeEmails: string[]): Array<{ email: string; responseStatus: 'accepted' }> {
   const dedup = new Set<string>();
-  const normalized: Array<{ email: string }> = [];
+  const normalized: Array<{ email: string; responseStatus: 'accepted' }> = [];
 
   for (const email of attendeeEmails) {
     const clean = String(email || '').trim().toLowerCase();
     if (!clean || dedup.has(clean)) continue;
     dedup.add(clean);
-    normalized.push({ email: clean });
+    normalized.push({ email: clean, responseStatus: 'accepted' });
   }
 
   return normalized;
@@ -68,6 +68,9 @@ export const googleCalendarService = {
             timeZone: timezone,
           },
           attendees,
+          guestsCanInviteOthers: false,
+          guestsCanModify: false,
+          guestsCanSeeOtherGuests: true,
           conferenceData: {
             createRequest: {
               requestId: randomUUID(),
