@@ -9,6 +9,7 @@ import CitasListCard from '@components/dashboard/CitasListCard';
 import ManualCitaModal from '@components/dashboard/ManualCitaModal';
 import CancelarCitaModal from '@components/dashboard/CancelarCitaModal';
 import ReprogramarCitaModal from '@components/dashboard/ReprogramarCitaModal';
+import EliminarCitaModal from '@components/dashboard/EliminarCitaModal';
 import universityLogoWhite from '/src/assets/logos/university-logo-blanco.png';
 import { DashboardStats, SystemStatus, SystemAlert, ManualCita, Student } from '../../types';
 import { useTheme } from '@components/layout/MainLayout';
@@ -40,6 +41,7 @@ const DashboardPage: React.FC = () => {
   const [isManualCitaModalOpen, setIsManualCitaModalOpen] = useState(false);
   const [isCancelarModalOpen, setIsCancelarModalOpen] = useState(false);
   const [isReprogramarModalOpen, setIsReprogramarModalOpen] = useState(false);
+  const [isEliminarModalOpen, setIsEliminarModalOpen] = useState(false);
   const [citaSeleccionada, setCitaSeleccionada] = useState<ManualCita | null>(null);
   const [estudiantes, setEstudiantes] = useState<Student[]>([]);
   const [refreshCitas, setRefreshCitas] = useState(0);
@@ -150,11 +152,20 @@ const DashboardPage: React.FC = () => {
     setIsReprogramarModalOpen(true);
   };
 
+  const handleEliminarCita = (cita: ManualCita) => {
+    setCitaSeleccionada(cita);
+    setIsEliminarModalOpen(true);
+  };
+
   const handleCitaCancelada = () => {
     setRefreshCitas(prev => prev + 1);
   };
 
   const handleCitaReprogramada = () => {
+    setRefreshCitas(prev => prev + 1);
+  };
+
+  const handleCitaEliminada = () => {
     setRefreshCitas(prev => prev + 1);
   };
 
@@ -440,6 +451,7 @@ const DashboardPage: React.FC = () => {
             onAgendarNueva={handleNuevaCita}
             onCancelarCita={handleCancelarCita}
             onReprogramarCita={handleReprogramarCita}
+            onEliminarCita={handleEliminarCita}
             refreshKey={refreshCitas}
           />
         </div>
@@ -706,6 +718,13 @@ const DashboardPage: React.FC = () => {
         onClose={() => setIsReprogramarModalOpen(false)}
         cita={citaSeleccionada}
         onCitaReprogramada={handleCitaReprogramada}
+      />
+
+      <EliminarCitaModal
+        isOpen={isEliminarModalOpen}
+        onClose={() => setIsEliminarModalOpen(false)}
+        cita={citaSeleccionada}
+        onCitaEliminada={handleCitaEliminada}
       />
     </div>
   );

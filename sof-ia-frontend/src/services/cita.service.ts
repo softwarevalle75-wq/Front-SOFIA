@@ -188,6 +188,16 @@ export class CitaService {
     };
   }
 
+  static async eliminarCita(id: string): Promise<void> {
+    const response = await apiService.delete<{ success: boolean; message?: string }>(
+      API_CONFIG.ENDPOINTS.CITAS.DELETE(id)
+    );
+
+    if (!response.success) {
+      throw new Error(response.message || 'Error al eliminar cita');
+    }
+  }
+
   static async reprogramarCita(id: string, nuevaFecha: string, nuevaHora: string): Promise<ManualCita> {
     const response = await apiService.post<{ success: boolean; data: any }>(
       API_CONFIG.ENDPOINTS.CITAS.REPROGRAMAR(id),

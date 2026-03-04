@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Users, Video, XCircle, CheckCircle, Plus, Edit, FileSpreadsheet, FileText, Camera } from 'lucide-react';
+import { Calendar, Clock, Users, Video, XCircle, CheckCircle, Plus, Edit, FileSpreadsheet, FileText, Camera, Trash2 } from 'lucide-react';
 import Button from '@/components/common/Button';
 import { ManualCita } from '@/types';
 import { CitaService } from '@/services/cita.service';
@@ -13,6 +13,7 @@ interface CitasListCardProps {
   onAgendarNueva?: () => void;
   onCancelarCita?: (cita: ManualCita) => void;
   onReprogramarCita?: (cita: ManualCita) => void;
+  onEliminarCita?: (cita: ManualCita) => void;
   refreshKey?: number;
 }
 
@@ -21,6 +22,7 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
   onAgendarNueva,
   onCancelarCita,
   onReprogramarCita,
+  onEliminarCita,
   refreshKey = 0
 }) => {
   const { isDarkMode } = useTheme();
@@ -344,6 +346,17 @@ const CitasListCard: React.FC<CitasListCardProps> = ({
                       title="Cancelar"
                     >
                       <XCircle className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => onEliminarCita?.(cita)}
+                      className={`p-2 rounded-lg transition-colors ${
+                        isDarkMode
+                          ? 'text-red-300 hover:bg-red-900/40'
+                          : 'text-red-700 hover:bg-red-100'
+                      }`}
+                      title="Eliminar"
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 )}
