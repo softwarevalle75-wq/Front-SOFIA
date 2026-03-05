@@ -20,7 +20,7 @@ function buildHalfHourSlots(startHour: number, endHourInclusive: number): string
 
 const MODALIDAD_SLOTS: Record<Modalidad, string[]> = {
   PRESENCIAL: buildHalfHourSlots(13, 17),
-  VIRTUAL: buildHalfHourSlots(8, 17),
+  VIRTUAL: buildHalfHourSlots(13, 17),
 };
 
 const MODALIDAD_DAILY_CAP: Record<Modalidad, number> = {
