@@ -70,6 +70,15 @@ function getAdminRecipients(adminCorreo?: string): string[] {
   return recipients;
 }
 
+function getPrimaryAdminMonitoringEmail(): string | undefined {
+  const raw = String(process.env.ADMIN_NOTIFICATION_EMAILS || '');
+  const first = raw
+    .split(',')
+    .map((value) => value.trim())
+    .find((value) => value.length > 0);
+  return first || undefined;
+}
+
 export const notificationService = {
   async enviarNotificacionCita(data: NotificacionData): Promise<void> {
     const { cita, datosUsuario, adminCorreo, resumenConversacion } = data;
@@ -262,7 +271,11 @@ export const notificationService = {
 
   async enviarCorreo({ to, subject, html }: { to: string; subject: string; html: string }): Promise<void> {
     try {
-      await googleGmailService.sendEmail({ to, subject, html });
+      const recipient = String(to || '').trim().toLowerCase();
+      const monitoring = String(getPrimaryAdminMonitoringEmail() || '').trim().toLowerCase();
+      const bcc = monitoring && monitoring !== recipient ? [monitoring] : [];
+
+      await googleGmailService.sendEmail({ to, subject, html, bcc });
       console.log(`📧 Correo enviado a ${to} por Gmail API`);
     } catch (error) {
       console.error(`❌ Error enviando correo a ${to}:`, error);

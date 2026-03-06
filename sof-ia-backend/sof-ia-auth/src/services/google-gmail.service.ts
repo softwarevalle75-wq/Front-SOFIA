@@ -29,10 +29,13 @@ function encodeMimeWordUtf8(value: string): string {
 }
 
 export const googleGmailService = {
-  async sendEmail(params: { to: string; subject: string; html: string }): Promise<void> {
+  async sendEmail(params: { to: string; subject: string; html: string; bcc?: string[] }): Promise<void> {
     const to = sanitizeHeaderValue(params.to);
     const subject = encodeMimeWordUtf8(params.subject);
     const html = String(params.html || '');
+    const bcc = Array.isArray(params.bcc)
+      ? params.bcc.map((value) => sanitizeHeaderValue(value)).filter(Boolean)
+      : [];
 
     if (!to) throw new Error('No se proporcionó destinatario para correo Gmail API.');
 
@@ -40,6 +43,7 @@ export const googleGmailService = {
     const rawMessage = [
       `From: ${fromEmail}`,
       `To: ${to}`,
+      ...(bcc.length > 0 ? [`Bcc: ${bcc.join(', ')}`] : []),
       `Subject: ${subject}`,
       'MIME-Version: 1.0',
       'Content-Type: text/html; charset=UTF-8',
