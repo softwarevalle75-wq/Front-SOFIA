@@ -387,12 +387,16 @@ async function notifyTelegramCancellation(params: {
 export const citaController = {
   async getAll(req: Request, res: Response) {
     try {
-      const { estudianteId, estado, modalidad, origen } = req.query;
+      const { estudianteId, estado, modalidad, origen, from, to, updatedSince, fechaInicio, fechaFin } = req.query;
       
       const citas = await citaService.getAll({
         estudianteId: estudianteId as string,
         estado: estado as EstadoCita,
         modalidad: modalidad as Modalidad,
+        origen: origen as string,
+        from: (from || fechaInicio) as string,
+        to: (to || fechaFin) as string,
+        updatedSince: updatedSince as string,
       });
 
       const chatbotCitas = (await getChatbotAppointments())
@@ -417,6 +421,12 @@ export const citaController = {
       res.json({ success: true, data: result });
     } catch (error: any) {
       console.error('Error al obtener citas:', error);
+      if (citaService.isServiceError(error)) {
+        const statusByCode: Record<string, number> = {
+          SICOP_UNAVAILABLE: 502,
+        };
+        return res.status(statusByCode[error.code] || 500).json({ success: false, message: error.message || 'Error al obtener citas' });
+      }
       res.status(500).json({ success: false, message: 'Error al obtener citas' });
     }
   },

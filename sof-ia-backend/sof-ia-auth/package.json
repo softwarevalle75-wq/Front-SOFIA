@@ -7,6 +7,9 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "test": "vitest run",
+    "test:unit": "vitest run src/integrations/sicop/sicop-mappers.unit.test.ts src/integrations/sicop/sicop-token.store.unit.test.ts",
+    "test:integration": "vitest run src/integrations/sicop/sicop-auth.client.integration.test.ts src/integrations/sicop/sicop-appointments.client.integration.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:studio": "prisma studio",
     "seed": "ts-node prisma/seed.ts"
@@ -37,6 +40,7 @@
     "prisma": "^5.10.0",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^3.2.4"
   }
 }

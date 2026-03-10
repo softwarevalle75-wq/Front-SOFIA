@@ -10,7 +10,7 @@ export const estudianteController = {
       res.json({ success: true, data: estudiantes });
     } catch (error: any) {
       console.error('Error al obtener estudiantes:', error);
-      res.status(500).json({ success: false, message: 'Error al obtener estudiantes' });
+      res.status(500).json({ success: false, message: error.message || 'Error al obtener estudiantes' });
     }
   },
 
