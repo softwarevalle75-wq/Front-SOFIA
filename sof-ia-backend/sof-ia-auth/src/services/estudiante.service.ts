@@ -1,13 +1,25 @@
 import { PrismaClient, Modalidad, EstadoEstudiante } from '@prisma/client';
 import { auditoriaService } from './auditoria.service';
+import { sicopUsersClient } from '../integrations/sicop/sicop-users.client';
+import { mapSicopUserToSofiaStudent } from '../integrations/sicop/sicop-mappers';
+import { SicopIntegrationError } from '../integrations/sicop/sicop.types';
 
 const prisma = new PrismaClient();
 
 export const estudianteService = {
   async getAll() {
-    return await prisma.estudiante.findMany({
-      orderBy: { creadoEn: 'desc' },
-    });
+    try {
+      const users = await sicopUsersClient.getUsers();
+      return users
+        .filter((user) => String(user.role || '').toLowerCase() === 'estudiante')
+        .map(mapSicopUserToSofiaStudent)
+        .sort((a, b) => new Date(String(b.creadoEn)).getTime() - new Date(String(a.creadoEn)).getTime());
+    } catch (error) {
+      if (error instanceof SicopIntegrationError) {
+        throw new Error('No fue posible consultar estudiantes en SICOP');
+      }
+      throw error;
+    }
   },
 
   async getById(id: string) {

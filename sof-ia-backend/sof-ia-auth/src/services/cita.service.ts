@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from 'crypto';
 import { EstadoCita, Modalidad, Prisma, PrismaClient } from '@prisma/client';
 import { googleCalendarService } from './google-calendar.service';
+import { sicopAppointmentsClient } from '../integrations/sicop/sicop-appointments.client';
+import { mapSicopAppointmentToSofiaCita } from '../integrations/sicop/sicop-mappers';
+import { SicopIntegrationError } from '../integrations/sicop/sicop.types';
 
 const prisma = new PrismaClient();
 
@@ -445,18 +448,38 @@ export const citaService = {
     estudianteId?: string;
     estado?: EstadoCita;
     modalidad?: Modalidad;
+    sourceSystem?: string;
+    origen?: string;
+    from?: string;
+    to?: string;
+    updatedSince?: string;
   }) {
-    const where: any = {};
+    try {
+      const citas = (await sicopAppointmentsClient.getAppointments({
+        estado: filtros?.estado,
+        modalidad: filtros?.modalidad,
+        sourceSystem: filtros?.sourceSystem,
+        origen: filtros?.origen,
+        from: filtros?.from,
+        to: filtros?.to,
+        updatedSince: filtros?.updatedSince,
+      }))
+        .map(mapSicopAppointmentToSofiaCita)
+        .filter((cita) => {
+          if (filtros?.estudianteId && String(cita.estudianteId) !== filtros.estudianteId) return false;
+          if (filtros?.estado && String(cita.estado).toUpperCase() !== String(filtros.estado).toUpperCase()) return false;
+          if (filtros?.modalidad && String(cita.modalidad).toUpperCase() !== String(filtros.modalidad).toUpperCase()) return false;
+          return true;
+        })
+        .sort((a, b) => new Date(String(b.creadoEn || b.fecha)).getTime() - new Date(String(a.creadoEn || a.fecha)).getTime());
 
-    if (filtros?.estudianteId) where.estudianteId = filtros.estudianteId;
-    if (filtros?.estado) where.estado = filtros.estado;
-    if (filtros?.modalidad) where.modalidad = filtros.modalidad;
-
-    return prisma.cita.findMany({
-      where,
-      include: { estudiante: true },
-      orderBy: { fecha: 'desc' },
-    });
+      return citas;
+    } catch (error) {
+      if (error instanceof SicopIntegrationError) {
+        throw new CitaServiceError('SICOP_UNAVAILABLE', 'No fue posible consultar citas en SICOP.');
+      }
+      throw error;
+    }
   },
 
   async getById(id: string) {
