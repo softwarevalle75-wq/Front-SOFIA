@@ -2,7 +2,12 @@ import { Request, Response } from 'express';
 import { authService } from '../services/auth.service';
 import { loginSchema } from '../dto/login.dto';
 import { changePasswordSchema } from '../dto/change-password.dto';
-import { verifyToken } from '../utils/jwt.utils';
+
+function extractBearerToken(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  return authHeader.split(' ')[1] || null;
+}
 
 export const authController = {
   async login(req: Request, res: Response) {
@@ -17,10 +22,7 @@ export const authController = {
         });
       }
 
-      const ip = req.ip || req.socket.remoteAddress || undefined;
-      const userAgent = req.headers['user-agent'];
-
-      const authResult = await authService.login(result.data, ip, userAgent);
+      const authResult = await authService.login(result.data);
 
       if (!authResult.success) {
         return res.status(401).json(authResult);
@@ -38,22 +40,11 @@ export const authController = {
 
   async changePassword(req: Request, res: Response) {
     try {
-      const authHeader = req.headers.authorization;
-
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      const token = extractBearerToken(req);
+      if (!token) {
         return res.status(401).json({
           success: false,
           message: 'Token de autenticación requerido',
-        });
-      }
-
-      const token = authHeader.split(' ')[1];
-      const payload = verifyToken(token);
-
-      if (!payload) {
-        return res.status(401).json({
-          success: false,
-          message: 'Token inválido o expirado',
         });
       }
 
@@ -67,15 +58,7 @@ export const authController = {
         });
       }
 
-      const ip = req.ip || req.socket.remoteAddress || undefined;
-      const userAgent = req.headers['user-agent'];
-
-      const authResult = await authService.changePassword(
-        payload.userId,
-        result.data,
-        ip,
-        userAgent
-      );
+      const authResult = await authService.changePassword(token, result.data);
 
       if (!authResult.success) {
         return res.status(400).json(authResult);
@@ -93,16 +76,14 @@ export const authController = {
 
   async verifySession(req: Request, res: Response) {
     try {
-      const authHeader = req.headers.authorization;
-
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      const token = extractBearerToken(req);
+      if (!token) {
         return res.status(401).json({
           success: false,
           message: 'Token de autenticación requerido',
         });
       }
 
-      const token = authHeader.split(' ')[1];
       const authResult = await authService.verifySession(token);
 
       if (!authResult.success) {
@@ -121,21 +102,43 @@ export const authController = {
 
   async logout(req: Request, res: Response) {
     try {
-      const authHeader = req.headers.authorization;
+      const token = extractBearerToken(req);
+      if (!token) {
+        return res.status(401).json({
+          success: false,
+          message: 'Token de autenticación requerido',
+        });
+      }
+      const authResult = await authService.logout(token);
 
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.json(authResult);
+    } catch (error) {
+      console.error('Error en logout:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  async me(req: Request, res: Response) {
+    try {
+      const token = extractBearerToken(req);
+      if (!token) {
         return res.status(401).json({
           success: false,
           message: 'Token de autenticación requerido',
         });
       }
 
-      const token = authHeader.split(' ')[1];
-      const authResult = await authService.logout(token);
+      const authResult = await authService.me(token);
+      if (!authResult.success) {
+        return res.status(401).json(authResult);
+      }
 
       return res.json(authResult);
     } catch (error) {
-      console.error('Error en logout:', error);
+      console.error('Error en auth/me:', error);
       return res.status(500).json({
         success: false,
         message: 'Error interno del servidor',

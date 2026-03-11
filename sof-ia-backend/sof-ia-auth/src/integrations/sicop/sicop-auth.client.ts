@@ -1,9 +1,11 @@
 import { config } from '../../config/config';
 import SicopTokenStore from './sicop-token.store';
 import {
+  SicopAuthUser,
   SicopHttpResponse,
   SicopIntegrationError,
   SicopLoginResponse,
+  SicopMeResponse,
   SicopRequestOptions,
 } from './sicop.types';
 
@@ -156,6 +158,14 @@ export class SicopAuthClient {
     throw new SicopIntegrationError('No fue posible completar la solicitud a SICOP', 502, 'SICOP_REQUEST_EXHAUSTED');
   }
 
+  async request<T>(endpoint: string, init?: RequestInit): Promise<SicopHttpResponse<T>> {
+    return this.runRequest<T>({
+      endpoint,
+      init,
+      retryAttempts: config.sicop.retryAttempts,
+    });
+  }
+
   private async login(): Promise<string> {
     if (this.loginInFlight) return this.loginInFlight;
 
@@ -228,6 +238,45 @@ export class SicopAuthClient {
       }
       throw error;
     }
+  }
+
+  async loginUser(correo: string, password: string): Promise<SicopHttpResponse<SicopLoginResponse>> {
+    return this.request<SicopLoginResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: correo,
+        password,
+      }),
+    });
+  }
+
+  async requestWithUserToken<T>(token: string, endpoint: string, init?: RequestInit): Promise<SicopHttpResponse<T>> {
+    return this.request<T>(endpoint, {
+      ...(init || {}),
+      headers: {
+        ...(init?.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  }
+
+  async getMe(token: string): Promise<SicopAuthUser> {
+    const response = await this.requestWithUserToken<SicopMeResponse | SicopAuthUser>(token, '/auth/me', {
+      method: 'GET',
+    });
+
+    const payload = response.data;
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      if ((payload as SicopMeResponse).user && typeof (payload as SicopMeResponse).user === 'object') {
+        return (payload as SicopMeResponse).user as SicopAuthUser;
+      }
+      if ((payload as SicopMeResponse).data && typeof (payload as SicopMeResponse).data === 'object') {
+        return (payload as SicopMeResponse).data as SicopAuthUser;
+      }
+      return payload as SicopAuthUser;
+    }
+
+    throw new SicopIntegrationError('SICOP devolvió un payload inválido en /auth/me', 502, 'SICOP_INVALID_ME_PAYLOAD');
   }
 }
 

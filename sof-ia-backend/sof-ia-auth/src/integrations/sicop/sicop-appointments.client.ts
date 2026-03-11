@@ -88,6 +88,22 @@ export class SicopAppointmentsClient {
     );
   }
 
+  private extractAppointment(payload: SicopAppointmentsResponse | SicopAppointment): SicopAppointment {
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      if ((payload as SicopAppointmentsResponse).appointment && typeof (payload as SicopAppointmentsResponse).appointment === 'object') {
+        return (payload as SicopAppointmentsResponse).appointment as SicopAppointment;
+      }
+
+      if ((payload as SicopAppointmentsResponse).data && !Array.isArray((payload as SicopAppointmentsResponse).data)) {
+        return (payload as SicopAppointmentsResponse).data as unknown as SicopAppointment;
+      }
+
+      return payload as SicopAppointment;
+    }
+
+    throw new SicopIntegrationError('SICOP devolvió una cita inválida', 502, 'SICOP_INVALID_APPOINTMENT_PAYLOAD');
+  }
+
   private async fetchPage(
     filters: SicopAppointmentFilters,
     offset: number,
@@ -130,7 +146,7 @@ export class SicopAppointmentsClient {
       method: 'POST',
       body: JSON.stringify(payload),
     });
-    return response.data;
+    return this.extractAppointment(response.data as SicopAppointmentsResponse | SicopAppointment);
   }
 
   async updateAppointment(id: string, payload: Record<string, unknown>): Promise<SicopAppointment> {
@@ -138,7 +154,14 @@ export class SicopAppointmentsClient {
       method: 'PATCH',
       body: JSON.stringify(payload),
     });
-    return response.data;
+    return this.extractAppointment(response.data as SicopAppointmentsResponse | SicopAppointment);
+  }
+
+  async getAppointmentById(id: string): Promise<SicopAppointment> {
+    const response = await sicopAuthClient.requestWithAuth<SicopAppointmentsResponse | SicopAppointment>(`/appointments/${id}`, {
+      method: 'GET',
+    });
+    return this.extractAppointment(response.data);
   }
 
   async deleteAppointment(id: string): Promise<void> {

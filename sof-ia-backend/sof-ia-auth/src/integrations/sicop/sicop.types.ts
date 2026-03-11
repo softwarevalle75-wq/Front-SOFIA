@@ -1,6 +1,23 @@
 export interface SicopLoginResponse {
   token: string;
-  user?: Record<string, unknown>;
+  user?: SicopAuthUser;
+}
+
+export interface SicopAuthUser {
+  id?: string;
+  name?: string;
+  fullName?: string;
+  email?: string;
+  role?: string;
+  primerIngreso?: boolean;
+  firstLogin?: boolean;
+  [key: string]: unknown;
+}
+
+export interface SicopMeResponse {
+  user?: SicopAuthUser;
+  data?: SicopAuthUser;
+  [key: string]: unknown;
 }
 
 export interface SicopUser {
@@ -26,6 +43,7 @@ export interface SicopUser {
 export interface SicopUsersResponse {
   users?: SicopUser[];
   data?: SicopUser[];
+  user?: SicopUser;
 }
 
 export interface SicopAppointment {
@@ -35,6 +53,7 @@ export interface SicopAppointment {
 export interface SicopAppointmentsResponse {
   appointments?: SicopAppointment[];
   data?: SicopAppointment[];
+  appointment?: SicopAppointment;
 }
 
 export interface SicopRequestOptions {

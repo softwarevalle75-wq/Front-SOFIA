@@ -1,4 +1,4 @@
-import { SicopAppointment, SicopUser } from './sicop.types';
+import { SicopAppointment, SicopAuthUser, SicopUser } from './sicop.types';
 
 function normalizeModalidad(value: unknown): 'PRESENCIAL' | 'VIRTUAL' {
   const raw = String(value || '').toLowerCase();
@@ -14,6 +14,13 @@ function normalizeEstado(value: unknown): 'ACTIVO' | 'INACTIVO' {
     return 'INACTIVO';
   }
   return 'ACTIVO';
+}
+
+function normalizeRol(value: unknown): 'ADMIN_CONSULTORIO' | 'ESTUDIANTE' | 'USUARIO' {
+  const raw = String(value || '').toLowerCase();
+  if (raw.includes('admin') || raw.includes('administrativo')) return 'ADMIN_CONSULTORIO';
+  if (raw.includes('estudiante') || raw.includes('student')) return 'ESTUDIANTE';
+  return 'USUARIO';
 }
 
 function normalizeCitaEstado(value: unknown): 'AGENDADA' | 'CANCELADA' | 'COMPLETIDA' {
@@ -59,6 +66,28 @@ function toStringOrNull(value: unknown): string | null {
   return parsed || null;
 }
 
+function toIsoOrNow(value: unknown): string {
+  const parsed = new Date(String(value || ''));
+  return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+}
+
+export function mapSicopAuthUserToSofiaAuthUser(raw: SicopAuthUser): {
+  id: string;
+  nombreCompleto: string;
+  correo: string;
+  rol: 'ADMIN_CONSULTORIO' | 'ESTUDIANTE' | 'USUARIO';
+  primerIngreso: boolean;
+} {
+  const email = String(raw.email || '').trim();
+  return {
+    id: String(raw.id || email || 'sicop-user'),
+    nombreCompleto: String(raw.fullName || raw.name || 'Usuario SICOP'),
+    correo: email,
+    rol: normalizeRol(raw.role),
+    primerIngreso: Boolean(raw.primerIngreso ?? raw.firstLogin ?? false),
+  };
+}
+
 export function mapSicopUserToSofiaStudent(raw: SicopUser): Record<string, unknown> {
   const estado = normalizeEstado(raw.estado || raw.status);
   const documento =
@@ -80,6 +109,53 @@ export function mapSicopUserToSofiaStudent(raw: SicopUser): Record<string, unkno
     fechaInicio: null,
     creadoEn: raw.createdAt || new Date().toISOString(),
     actualizadoEn: raw.updatedAt || new Date().toISOString(),
+  };
+}
+
+export function mapSofiaStudentInputToSicopPayload(raw: Record<string, unknown>): Record<string, unknown> {
+  const correo = toStringOrNull(raw.correo);
+  return {
+    name: toStringOrNull(raw.nombre) || 'Estudiante SOFIA',
+    fullName: toStringOrNull(raw.nombre) || 'Estudiante SOFIA',
+    email: correo,
+    phone: toStringOrNull(raw.telefono),
+    area: toStringOrNull(raw.programa),
+    modality: String(raw.modalidad || 'PRESENCIAL').toUpperCase(),
+    status: String(raw.estado || 'ACTIVO').toUpperCase(),
+    role: 'estudiante',
+    document: toStringOrNull(raw.documento),
+    metadata: {
+      sourceSystem: 'SOFIA',
+      estadoCuenta: toStringOrNull(raw.estadoCuenta),
+      accesoCitas: raw.accesoCitas,
+      acudimientos: raw.acudimientos,
+      fechaInicio: raw.fechaInicio || null,
+    },
+  };
+}
+
+export function mapSofiaCitaToSicopPayload(raw: Record<string, unknown>): Record<string, unknown> {
+  return {
+    fecha: raw.fecha,
+    date: raw.fecha,
+    hora: toStringOrNull(raw.hora),
+    time: toStringOrNull(raw.hora),
+    modalidad: String(raw.modalidad || 'PRESENCIAL').toUpperCase(),
+    mode: String(raw.modalidad || 'PRESENCIAL').toUpperCase(),
+    motivo: toStringOrNull(raw.motivo),
+    reason: toStringOrNull(raw.motivo),
+    estado: String(raw.estado || 'AGENDADA').toUpperCase(),
+    status: String(raw.estado || 'AGENDADA').toUpperCase(),
+    estudianteId: toStringOrNull(raw.estudianteId),
+    studentId: toStringOrNull(raw.estudianteId),
+    usuarioNombre: toStringOrNull(raw.usuarioNombre),
+    usuarioTipoDocumento: toStringOrNull(raw.usuarioTipoDocumento),
+    usuarioNumeroDocumento: toStringOrNull(raw.usuarioNumeroDocumento),
+    usuarioCorreo: toStringOrNull(raw.usuarioCorreo),
+    usuarioTelefono: toStringOrNull(raw.usuarioTelefono),
+    conversacionId: toStringOrNull(raw.conversacionId),
+    enlaceReunion: toStringOrNull(raw.enlaceReunion),
+    sourceSystem: 'SOFIA',
   };
 }
 
@@ -106,7 +182,7 @@ export function mapSicopAppointmentToSofiaCita(raw: SicopAppointment): Record<st
   return {
     id: String(raw.id || `${estudianteId}-${fecha}-${hora}`),
     estudianteId,
-    fecha,
+    fecha: toIsoOrNow(fecha),
     hora,
     modalidad,
     motivo: String(raw.motivo || raw.reason || raw.subject || ''),
@@ -117,8 +193,8 @@ export function mapSicopAppointmentToSofiaCita(raw: SicopAppointment): Record<st
     usuarioCorreo: toStringOrNull(raw.usuarioCorreo),
     usuarioTelefono: toStringOrNull(raw.usuarioTelefono),
     enlaceReunion: toStringOrNull(raw.enlaceReunion || raw.meetingLink),
-    creadoEn: raw.createdAt || fecha,
-    actualizadoEn: raw.updatedAt || fecha,
+    creadoEn: toIsoOrNow(raw.createdAt || raw.created_at || fecha),
+    actualizadoEn: toIsoOrNow(raw.updatedAt || raw.updated_at || fecha),
     estudiante: {
       id: estudianteId,
       nombre: String(estudiante.name || estudiante.fullName || 'Estudiante'),
