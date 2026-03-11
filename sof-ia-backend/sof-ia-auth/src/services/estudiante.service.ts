@@ -9,9 +9,14 @@ function asSofiaStudent(raw: unknown): SofiaStudent {
 }
 
 async function fetchStudentList(): Promise<SofiaStudent[]> {
-  const users = await sicopUsersClient.getUsers();
+  const users = await sicopUsersClient.getUsers({
+    role: 'estudiante',
+    sourceSystem: 'SOFIA',
+  });
+
   return users
     .filter((user) => String(user.role || '').toLowerCase() === 'estudiante')
+    .filter((user) => String((user as any).sourceSystem || '').toUpperCase() === 'SOFIA')
     .map((user) => asSofiaStudent(user))
     .sort((a, b) => new Date(String(b.creadoEn || b.createdAt || 0)).getTime() - new Date(String(a.creadoEn || a.createdAt || 0)).getTime());
 }
