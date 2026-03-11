@@ -1,5 +1,5 @@
 import sicopAuthClient from './sicop-auth.client';
-import { SicopIntegrationError, SicopUser, SicopUsersResponse } from './sicop.types';
+import { SicopIntegrationError, SicopUser, SicopUserFilters, SicopUsersResponse } from './sicop.types';
 
 export class SicopUsersClient {
   private extractUsers(payload: SicopUsersResponse | SicopUser[]): SicopUser[] {
@@ -34,8 +34,13 @@ export class SicopUsersClient {
     throw new SicopIntegrationError('SICOP devolvió un usuario inválido', 502, 'SICOP_INVALID_USER_PAYLOAD');
   }
 
-  async getUsers(): Promise<SicopUser[]> {
-    const response = await sicopAuthClient.requestWithAuth<SicopUsersResponse | SicopUser[]>('/auth/users', {
+  async getUsers(filters?: SicopUserFilters): Promise<SicopUser[]> {
+    const query = new URLSearchParams();
+    if (filters?.role) query.set('role', String(filters.role));
+    if (filters?.sourceSystem) query.set('sourceSystem', String(filters.sourceSystem));
+    const path = query.toString().length > 0 ? `/auth/users?${query.toString()}` : '/auth/users';
+
+    const response = await sicopAuthClient.requestWithAuth<SicopUsersResponse | SicopUser[]>(path, {
       method: 'GET',
     });
 

@@ -46,6 +46,11 @@ export interface SicopUsersResponse {
   user?: SicopUser;
 }
 
+export interface SicopUserFilters {
+  role?: string;
+  sourceSystem?: string;
+}
+
 export interface SicopAppointment {
   [key: string]: unknown;
 }
