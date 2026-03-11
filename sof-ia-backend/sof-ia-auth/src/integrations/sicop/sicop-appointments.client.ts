@@ -12,6 +12,11 @@ function asBooleanHeader(value: string | undefined): boolean {
   return String(value || '').toLowerCase() === 'true';
 }
 
+function asNumberHeader(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 function normalizeDate(value?: string): string | undefined {
   const raw = String(value || '').trim();
   if (!raw) return undefined;
@@ -42,7 +47,7 @@ function buildQueryParams(filters: SicopAppointmentFilters, offset: number): URL
   const params = new URLSearchParams();
   params.set('limit', String(filters.limit || PAGE_LIMIT));
   params.set('offset', String(offset));
-  params.set('sourceSystem', mapOrigenToSourceSystem(filters.origen));
+  params.set('sourceSystem', mapOrigenToSourceSystem(filters.sourceSystem || filters.origen));
 
   const estado = mapEstado(filters.estado);
   if (estado) params.set('estado', estado);
@@ -84,18 +89,23 @@ export class SicopAppointmentsClient {
   }
 
   private async fetchPage(
-    endpoint: '/appointments' | '/citas',
     filters: SicopAppointmentFilters,
     offset: number,
-  ): Promise<{ appointments: SicopAppointment[]; hasMore: boolean }> {
+  ): Promise<{ appointments: SicopAppointment[]; hasMore: boolean; nextOffset: number }> {
     const query = buildQueryParams(filters, offset);
-    const response = await sicopAuthClient.requestWithAuth<SicopAppointmentsResponse | SicopAppointment[]>(`${endpoint}?${query.toString()}`, {
+    const response = await sicopAuthClient.requestWithAuth<SicopAppointmentsResponse | SicopAppointment[]>(`/appointments?${query.toString()}`, {
       method: 'GET',
     });
 
     const appointments = this.extractAppointments(response.data);
+    const currentOffset = asNumberHeader(response.headers['x-pagination-offset'], offset);
+    const currentLimit = asNumberHeader(response.headers['x-pagination-limit'], filters.limit || PAGE_LIMIT);
     const hasMore = asBooleanHeader(response.headers['x-pagination-has-more']);
-    return { appointments, hasMore };
+    return {
+      appointments,
+      hasMore,
+      nextOffset: currentOffset + currentLimit,
+    };
   }
 
   async getAppointments(filters: SicopAppointmentFilters = {}): Promise<SicopAppointment[]> {
@@ -103,30 +113,38 @@ export class SicopAppointmentsClient {
     const pageSize = filters.limit || PAGE_LIMIT;
     let offset = filters.offset || 0;
 
-    const fetchAllFromEndpoint = async (endpoint: '/appointments' | '/citas'): Promise<SicopAppointment[]> => {
-      allAppointments.length = 0;
-      offset = filters.offset || 0;
-
-      while (true) {
-        const page = await this.fetchPage(endpoint, { ...filters, limit: pageSize }, offset);
-        allAppointments.push(...page.appointments);
-        if (!page.hasMore) {
-          break;
-        }
-        offset += pageSize;
+    while (true) {
+      const page = await this.fetchPage({ ...filters, limit: pageSize }, offset);
+      allAppointments.push(...page.appointments);
+      if (!page.hasMore) {
+        break;
       }
-
-      return [...allAppointments];
-    };
-
-    try {
-      return await fetchAllFromEndpoint('/appointments');
-    } catch (error) {
-      if (error instanceof SicopIntegrationError && error.code === 'SICOP_NETWORK_ERROR') {
-        return fetchAllFromEndpoint('/citas');
-      }
-      throw error;
+      offset = page.nextOffset;
     }
+
+    return allAppointments;
+  }
+
+  async createAppointment(payload: Record<string, unknown>): Promise<SicopAppointment> {
+    const response = await sicopAuthClient.requestWithAuth<SicopAppointment>('/appointments', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return response.data;
+  }
+
+  async updateAppointment(id: string, payload: Record<string, unknown>): Promise<SicopAppointment> {
+    const response = await sicopAuthClient.requestWithAuth<SicopAppointment>(`/appointments/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    return response.data;
+  }
+
+  async deleteAppointment(id: string): Promise<void> {
+    await sicopAuthClient.requestWithAuth<unknown>(`/appointments/${id}`, {
+      method: 'DELETE',
+    });
   }
 }
 

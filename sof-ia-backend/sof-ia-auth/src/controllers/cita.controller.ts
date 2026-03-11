@@ -387,12 +387,13 @@ async function notifyTelegramCancellation(params: {
 export const citaController = {
   async getAll(req: Request, res: Response) {
     try {
-      const { estudianteId, estado, modalidad, origen, from, to, updatedSince, fechaInicio, fechaFin } = req.query;
+      const { estudianteId, estado, modalidad, sourceSystem, origen, from, to, updatedSince, fechaInicio, fechaFin } = req.query;
       
       const citas = await citaService.getAll({
         estudianteId: estudianteId as string,
         estado: estado as EstadoCita,
         modalidad: modalidad as Modalidad,
+        sourceSystem: sourceSystem as string,
         origen: origen as string,
         from: (from || fechaInicio) as string,
         to: (to || fechaFin) as string,

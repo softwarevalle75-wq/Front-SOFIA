@@ -53,6 +53,7 @@ export interface SicopAppointmentFilters {
   offset?: number;
   estado?: string;
   modalidad?: string;
+  sourceSystem?: string;
   origen?: string;
   from?: string;
   to?: string;

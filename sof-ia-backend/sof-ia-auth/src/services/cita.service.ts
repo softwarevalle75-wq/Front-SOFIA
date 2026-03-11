@@ -412,6 +412,7 @@ export const citaService = {
     estudianteId?: string;
     estado?: EstadoCita;
     modalidad?: Modalidad;
+    sourceSystem?: string;
     origen?: string;
     from?: string;
     to?: string;
@@ -421,6 +422,7 @@ export const citaService = {
       const citas = (await sicopAppointmentsClient.getAppointments({
         estado: filtros?.estado,
         modalidad: filtros?.modalidad,
+        sourceSystem: filtros?.sourceSystem,
         origen: filtros?.origen,
         from: filtros?.from,
         to: filtros?.to,

@@ -40,14 +40,22 @@ describe('sicop appointments client integration (mocked)', () => {
         jsonResponse(
           200,
           { appointments: [{ id: 'a1' }] },
-          { 'x-pagination-has-more': 'true' },
+          {
+            'x-pagination-limit': '100',
+            'x-pagination-offset': '0',
+            'x-pagination-has-more': 'true',
+          },
         ),
       )
       .mockResolvedValueOnce(
         jsonResponse(
           200,
           { appointments: [{ id: 'a2' }] },
-          { 'x-pagination-has-more': 'false' },
+          {
+            'x-pagination-limit': '100',
+            'x-pagination-offset': '100',
+            'x-pagination-has-more': 'false',
+          },
         ),
       );
 
@@ -94,6 +102,29 @@ describe('sicop appointments client integration (mocked)', () => {
     expect(url).toContain('updatedSince=2026-03-10T00%3A00%3A00.000Z');
   });
 
+  it('accepts sourceSystem filter directly', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { token: createJwtWithExp(600) }))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          200,
+          { appointments: [{ id: 'a6' }] },
+          { 'x-pagination-has-more': 'false' },
+        ),
+      );
+
+    vi.stubGlobal('fetch', fetchMock);
+    const { sicopAppointmentsClient } = await import('./sicop-appointments.client');
+
+    await sicopAppointmentsClient.getAppointments({
+      sourceSystem: 'CHATBOT',
+    });
+
+    const url = String(fetchMock.mock.calls[1][0]);
+    expect(url).toContain('sourceSystem=CHATBOT');
+  });
+
   it('retries on timeout and returns data', async () => {
     const abortError = new Error('timeout');
     abortError.name = 'AbortError';
@@ -118,7 +149,7 @@ describe('sicop appointments client integration (mocked)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it('falls back to /citas when /appointments exhausts network retries', async () => {
+  it('fails when /appointments exhausts network retries', async () => {
     const abortError = new Error('timeout');
     abortError.name = 'AbortError';
 
@@ -127,20 +158,14 @@ describe('sicop appointments client integration (mocked)', () => {
       .mockResolvedValueOnce(jsonResponse(200, { token: createJwtWithExp(600) }))
       .mockRejectedValueOnce(abortError)
       .mockRejectedValueOnce(abortError)
-      .mockRejectedValueOnce(abortError)
-      .mockResolvedValueOnce(
-        jsonResponse(
-          200,
-          { appointments: [{ id: 'a5' }] },
-          { 'x-pagination-has-more': 'false' },
-        ),
-      );
+      .mockRejectedValueOnce(abortError);
 
     vi.stubGlobal('fetch', fetchMock);
     const { sicopAppointmentsClient } = await import('./sicop-appointments.client');
 
-    const data = await sicopAppointmentsClient.getAppointments();
-    expect(data).toHaveLength(1);
-    expect(String(fetchMock.mock.calls[4][0])).toContain('/citas?limit=100&offset=0&sourceSystem=SOFIA');
+    await expect(sicopAppointmentsClient.getAppointments()).rejects.toMatchObject({
+      code: 'SICOP_NETWORK_ERROR',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 });
