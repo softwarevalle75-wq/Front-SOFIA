@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:unit": "vitest run src/integrations/sicop/sicop-mappers.unit.test.ts src/integrations/sicop/sicop-token.store.unit.test.ts",
     "test:integration": "vitest run src/integrations/sicop/sicop-auth.client.integration.test.ts src/integrations/sicop/sicop-appointments.client.integration.test.ts",
+    "export:data": "ts-node src/scripts/export-sofia-data.ts",
     "prisma:generate": "prisma generate",
     "prisma:studio": "prisma studio",
     "seed": "ts-node prisma/seed.ts"
