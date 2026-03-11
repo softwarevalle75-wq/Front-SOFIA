@@ -32,6 +32,10 @@ function buildAuthErrorMessage(error: SicopIntegrationError): string {
   return 'No fue posible autenticar con SICOP';
 }
 
+function normalizeEmail(correo: string): string {
+  return String(correo || '').trim().toLowerCase();
+}
+
 function isLocalToken(token: string): boolean {
   const payload = verifyToken(token);
   return Boolean(payload?.sessionId);
@@ -54,8 +58,15 @@ function mapLocalUserToAuthUser(usuario: {
 }
 
 async function loginLocal(data: LoginDto): Promise<AuthResult> {
-  const usuario = await prisma.usuario.findUnique({
-    where: { correo: data.correo },
+  const correo = normalizeEmail(data.correo);
+
+  const usuario = await prisma.usuario.findFirst({
+    where: {
+      correo: {
+        equals: correo,
+        mode: 'insensitive',
+      },
+    },
   });
 
   if (!usuario) {
@@ -217,8 +228,10 @@ async function logoutLocal(token: string): Promise<void> {
 
 export const authService = {
   async login(data: LoginDto): Promise<AuthResult> {
+    const correo = normalizeEmail(data.correo);
+
     try {
-      const loginResponse = await sicopAuthClient.loginUser(data.correo, data.password);
+      const loginResponse = await sicopAuthClient.loginUser(correo, data.password);
       if (!loginResponse.data?.token) {
         return {
           success: false,
