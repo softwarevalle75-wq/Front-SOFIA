@@ -1,14 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken } from '../utils/jwt.utils';
-import prisma from '../config/prisma';
-import { config } from '../config/config';
+import { authService } from '../services/auth.service';
 
 export interface AuthRequest extends Request {
   user?: {
     userId: string;
     email: string;
     role: string;
-    sessionId: string;
+    sessionId?: string;
     nombreCompleto?: string;
   };
 }
@@ -16,7 +14,7 @@ export interface AuthRequest extends Request {
 export const authMiddleware = async (
   req: AuthRequest,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     const path = String(req.originalUrl || req.url || '').toLowerCase();
@@ -50,7 +48,6 @@ export const authMiddleware = async (
     }
 
     const authHeader = req.headers.authorization;
-
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
         success: false,
@@ -59,75 +56,23 @@ export const authMiddleware = async (
     }
 
     const token = authHeader.split(' ')[1];
-    const payload = verifyToken(token);
+    const session = await authService.me(token);
 
-    if (!payload) {
+    if (!session.success || !session.user) {
       return res.status(401).json({
         success: false,
-        message: 'Token inválido o expirado',
+        message: session.message || 'Token inválido o expirado',
       });
     }
-
-    const sesion = await prisma.sesion.findFirst({
-      where: {
-        id: payload.sessionId,
-        token,
-        activa: true,
-      },
-    });
-
-    if (!sesion) {
-      return res.status(401).json({
-        success: false,
-        message: 'Sesión inválida o expirada',
-      });
-    }
-
-    // Verificar inactividad - si pasaron más de 20 minutos desde el último acceso
-    const ahora = new Date();
-    const ultimoAcceso = new Date(sesion.ultimoAcceso);
-    const diferenciaInactividad = ahora.getTime() - ultimoAcceso.getTime();
-    const timeoutMinutos = config.security.sessionTimeoutMinutes * 60 * 1000;
-
-    if (diferenciaInactividad > timeoutMinutos) {
-      // La sesión ha expirado por inactividad
-      await prisma.sesion.update({
-        where: { id: sesion.id },
-        data: { activa: false }
-      });
-      
-      return res.status(401).json({
-        success: false,
-        message: 'Sesión expirada por inactividad',
-        code: 'SESSION_TIMEOUT_INACTIVITY'
-      });
-    }
-
-    // Actualizar ultimoAcceso para reiniciar el contador de inactividad
-    await prisma.sesion.update({
-      where: { id: sesion.id },
-      data: { ultimoAcceso: ahora }
-    });
-
-    // Obtener datos completos del usuario
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: payload.userId },
-      select: {
-        id: true,
-        nombreCompleto: true,
-        correo: true,
-        rol: true,
-      },
-    });
 
     req.user = {
-      userId: payload.userId,
-      email: payload.email,
-      role: payload.role,
-      sessionId: payload.sessionId,
-      nombreCompleto: usuario?.nombreCompleto,
+      userId: session.user.id,
+      email: session.user.correo,
+      role: session.user.rol,
+      nombreCompleto: session.user.nombreCompleto,
     };
-    next();
+
+    return next();
   } catch (error) {
     console.error('Error en authMiddleware:', error);
     return res.status(500).json({
@@ -136,3 +81,5 @@ export const authMiddleware = async (
     });
   }
 };
+
+export default authMiddleware;
