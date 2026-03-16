@@ -1,10 +1,14 @@
-import prisma from '../config/prisma';
-import { config } from '../config/config';
-import { comparePassword, hashPassword, validatePasswordPolicy } from '../utils/password.utils';
-import { generateToken, generateSessionToken } from '../utils/jwt.utils';
-import { LoginDto } from '../dto/login.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
-import { Rol, EstadoUsuario, TipoAuditoria } from '@prisma/client';
+import { LoginDto } from '../dto/login.dto';
+import { config } from '../config/config';
+import prisma from '../config/prisma';
+import { comparePassword, hashPassword, validatePasswordPolicy } from '../utils/password.utils';
+import { generateSessionToken, generateToken, verifyToken } from '../utils/jwt.utils';
+import sicopAuthClient from '../integrations/sicop/sicop-auth.client';
+import { mapSicopAuthUserToSofiaAuthUser } from '../integrations/sicop/sicop-mappers';
+import { SicopIntegrationError } from '../integrations/sicop/sicop.types';
+import { EstadoUsuario, Rol } from '@prisma/client';
+import { incrementCounter } from '../observability/metrics';
 
 export interface AuthResult {
   success: boolean;
@@ -15,378 +19,383 @@ export interface AuthResult {
     id: string;
     nombreCompleto: string;
     correo: string;
-    rol: Rol;
+    rol: string;
     primerIngreso: boolean;
   };
 }
 
-export const authService = {
-  async login(data: LoginDto, ip?: string, userAgent?: string): Promise<AuthResult> {
-    const { correo, password } = data;
+function buildAuthErrorMessage(error: SicopIntegrationError): string {
+  if (error.statusCode === 401 || error.statusCode === 403) {
+    return 'Credenciales inválidas';
+  }
+  if (error.statusCode === 408 || error.code === 'SICOP_NETWORK_ERROR') {
+    return 'No fue posible conectar con SICOP';
+  }
+  return 'No fue posible autenticar con SICOP';
+}
 
-    const usuario = await prisma.usuario.findUnique({
-      where: { correo },
-    });
+function normalizeEmail(correo: string): string {
+  return String(correo || '').trim().toLowerCase();
+}
 
-    const ahora = new Date();
-    const ventanaTiempo = new Date(
-      ahora.getTime() - config.security.loginAttemptWindowMinutes * 60 * 1000
-    );
+function canUseLocalFallback(): boolean {
+  return config.featureFlags.authLocalFallbackEnabled;
+}
 
-    const intentosRecientes = await prisma.intentoLogin.count({
-      where: {
-        correo,
-        exitoso: false,
-        creadoEn: { gte: ventanaTiempo },
+function canAcceptLocalToken(): boolean {
+  return config.featureFlags.authLocalTokenAcceptEnabled;
+}
+
+function isLocalToken(token: string): boolean {
+  if (!canAcceptLocalToken()) return false;
+  const payload = verifyToken(token);
+  return Boolean(payload?.sessionId);
+}
+
+function mapLocalUserToAuthUser(usuario: {
+  id: string;
+  nombreCompleto: string;
+  correo: string;
+  rol: string;
+  primerIngreso: boolean;
+}): AuthResult['user'] {
+  return {
+    id: usuario.id,
+    nombreCompleto: usuario.nombreCompleto,
+    correo: usuario.correo,
+    rol: usuario.rol,
+    primerIngreso: usuario.primerIngreso,
+  };
+}
+
+async function loginLocal(data: LoginDto): Promise<AuthResult> {
+  const correo = normalizeEmail(data.correo);
+
+  const usuario = await prisma.usuario.findFirst({
+    where: {
+      correo: {
+        equals: correo,
+        mode: 'insensitive',
       },
-    });
+    },
+  });
 
-    if (intentosRecientes >= config.security.maxLoginAttempts) {
-      await prisma.intentoLogin.create({
-        data: {
-          correo,
-          tipo: 'LOGIN',
-          exitoso: false,
-          ip: ip || null,
-          userAgent: userAgent || null,
-          motivoFallo: 'Máximo de intentos alcanzado',
-        },
-      });
-
-      return {
-        success: false,
-        message: 'Demasiados intentos fallidos. Intente más tarde.',
-      };
-    }
-
-    if (!usuario) {
-      await prisma.intentoLogin.create({
-        data: {
-          correo,
-          tipo: 'LOGIN',
-          exitoso: false,
-          ip: ip || null,
-          userAgent: userAgent || null,
-          motivoFallo: 'Usuario no encontrado',
-        },
-      });
-
-      // Registrar en auditoría
-      await prisma.auditoria.create({
-        data: {
-          accion: TipoAuditoria.LOGIN_FALLO,
-          entidad: 'login',
-          detalles: `Intento de login fallido. Usuario no encontrado: ${correo}`,
-          ip: ip || null,
-          userAgent: userAgent || null,
-        },
-      });
-
-      return {
-        success: false,
-        message: 'Credenciales inválidas',
-      };
-    }
-
-    if (usuario.estado !== EstadoUsuario.ACTIVO) {
-      await prisma.intentoLogin.create({
-        data: {
-          usuarioId: usuario.id,
-          correo,
-          tipo: 'LOGIN',
-          exitoso: false,
-          ip: ip || null,
-          userAgent: userAgent || null,
-          motivoFallo: 'Usuario inactivo o suspendido',
-        },
-      });
-
-      // Registrar en auditoría
-      await prisma.auditoria.create({
-        data: {
-          accion: TipoAuditoria.LOGIN_FALLO,
-          entidad: 'login',
-          detalles: `Intento de login fallido. Usuario inactivo: ${correo}`,
-          adminId: usuario.id,
-          adminNombre: usuario.nombreCompleto,
-          ip: ip || null,
-          userAgent: userAgent || null,
-        },
-      });
-
-      return {
-        success: false,
-        message: 'Credenciales inválidas',
-      };
-    }
-
-    if (usuario.rol !== Rol.ADMIN_CONSULTORIO) {
-      await prisma.intentoLogin.create({
-        data: {
-          usuarioId: usuario.id,
-          correo,
-          tipo: 'LOGIN',
-          exitoso: false,
-          ip: ip || null,
-          userAgent: userAgent || null,
-          motivoFallo: 'Usuario no tiene rol de administrador',
-        },
-      });
-
-      // Registrar en auditoría
-      await prisma.auditoria.create({
-        data: {
-          accion: TipoAuditoria.LOGIN_FALLO,
-          entidad: 'login',
-          detalles: `Intento de login fallido. Usuario sin rol de admin: ${correo}`,
-          adminId: usuario.id,
-          adminNombre: usuario.nombreCompleto,
-          ip: ip || null,
-          userAgent: userAgent || null,
-        },
-      });
-
-      return {
-        success: false,
-        message: 'Credenciales inválidas',
-      };
-    }
-
-    const passwordValida = await comparePassword(password, usuario.passwordHash);
-
-    if (!passwordValida) {
-      await prisma.intentoLogin.create({
-        data: {
-          usuarioId: usuario.id,
-          correo,
-          tipo: 'LOGIN',
-          exitoso: false,
-          ip: ip || null,
-          userAgent: userAgent || null,
-          motivoFallo: 'Contraseña incorrecta',
-        },
-      });
-
-      // Registrar en auditoría
-      await prisma.auditoria.create({
-        data: {
-          accion: TipoAuditoria.LOGIN_FALLO,
-          entidad: 'login',
-          detalles: `Intento de login fallido. Contraseña incorrecta para usuario: ${correo}`,
-          adminId: usuario.id,
-          adminNombre: usuario.nombreCompleto,
-          ip: ip || null,
-          userAgent: userAgent || null,
-        },
-      });
-
-      return {
-        success: false,
-        message: 'Credenciales inválidas',
-      };
-    }
-
-    await prisma.intentoLogin.create({
-      data: {
-        usuarioId: usuario.id,
-        correo,
-        tipo: 'LOGIN',
-        exitoso: true,
-        ip: ip || null,
-        userAgent: userAgent || null,
-      },
-    });
-
-    // Registrar en auditoría
-    await prisma.auditoria.create({
-      data: {
-        accion: TipoAuditoria.LOGIN_EXITO,
-        entidad: 'login',
-        detalles: `Login exitoso desde ${ip || 'IP desconocida'}`,
-        adminId: usuario.id,
-        adminNombre: usuario.nombreCompleto,
-        ip: ip || null,
-        userAgent: userAgent || null,
-      },
-    });
-
-    // La sesión dura 24 horas pero el middleware controla la inactividad (20 min)
-    const expiresAt = new Date(
-      Date.now() + 24 * 60 * 60 * 1000 // 24 horas
-    );
-
-    const sesion = await prisma.sesion.create({
-      data: {
-        usuarioId: usuario.id,
-        token: generateSessionToken(),
-        ip: ip || null,
-        userAgent: userAgent || null,
-        expiresAt,
-      },
-    });
-
-    const tokenPayload = {
-      userId: usuario.id,
-      email: usuario.correo,
-      role: usuario.rol,
-      sessionId: sesion.id,
-    };
-
-    const token = generateToken(tokenPayload);
-
-    await prisma.sesion.update({
-      where: { id: sesion.id },
-      data: { token },
-    });
-
+  if (!usuario) {
     return {
-      success: true,
-      message: 'Login exitoso',
-      requiresPasswordChange: usuario.primerIngreso,
-      token,
-      user: {
-        id: usuario.id,
-        nombreCompleto: usuario.nombreCompleto,
-        correo: usuario.correo,
-        rol: usuario.rol,
-        primerIngreso: usuario.primerIngreso,
-      },
+      success: false,
+      message: 'Credenciales inválidas',
     };
+  }
+
+  if (usuario.estado !== EstadoUsuario.ACTIVO || usuario.rol !== Rol.ADMIN_CONSULTORIO) {
+    return {
+      success: false,
+      message: 'Credenciales inválidas',
+    };
+  }
+
+  const passwordValida = await comparePassword(data.password, usuario.passwordHash);
+  if (!passwordValida) {
+    return {
+      success: false,
+      message: 'Credenciales inválidas',
+    };
+  }
+
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+  const sesion = await prisma.sesion.create({
+    data: {
+      usuarioId: usuario.id,
+      token: generateSessionToken(),
+      expiresAt,
+    },
+  });
+
+  const token = generateToken({
+    userId: usuario.id,
+    email: usuario.correo,
+    role: usuario.rol,
+    sessionId: sesion.id,
+  });
+
+  await prisma.sesion.update({
+    where: { id: sesion.id },
+    data: { token },
+  });
+
+  return {
+    success: true,
+    message: 'Login exitoso',
+    requiresPasswordChange: usuario.primerIngreso,
+    token,
+    user: mapLocalUserToAuthUser(usuario),
+  };
+}
+
+async function meLocal(token: string): Promise<AuthResult> {
+  const payload = verifyToken(token);
+  if (!payload?.sessionId) {
+    return {
+      success: false,
+      message: 'Token inválido o expirado',
+    };
+  }
+
+  const sesion = await prisma.sesion.findFirst({
+    where: {
+      id: payload.sessionId,
+      token,
+      activa: true,
+      expiresAt: { gt: new Date() },
+    },
+    include: {
+      usuario: true,
+    },
+  });
+
+  if (!sesion) {
+    return {
+      success: false,
+      message: 'Sesión inválida o expirada',
+    };
+  }
+
+  await prisma.sesion.update({
+    where: { id: sesion.id },
+    data: { ultimoAcceso: new Date() },
+  });
+
+  return {
+    success: true,
+    message: 'Sesión válida',
+    user: mapLocalUserToAuthUser(sesion.usuario),
+  };
+}
+
+async function changePasswordLocal(token: string, data: ChangePasswordDto): Promise<AuthResult> {
+  const payload = verifyToken(token);
+  if (!payload?.sessionId || !payload?.userId) {
+    return {
+      success: false,
+      message: 'Token inválido o expirado',
+    };
+  }
+
+  const usuario = await prisma.usuario.findUnique({
+    where: { id: payload.userId },
+  });
+
+  if (!usuario) {
+    return {
+      success: false,
+      message: 'Usuario no encontrado',
+    };
+  }
+
+  const passwordValida = await comparePassword(data.passwordActual, usuario.passwordHash);
+  if (!passwordValida) {
+    return {
+      success: false,
+      message: 'La contraseña actual es incorrecta',
+    };
+  }
+
+  const validacion = validatePasswordPolicy(data.nuevaPassword);
+  if (!validacion.valid) {
+    return {
+      success: false,
+      message: validacion.errors.join('. '),
+    };
+  }
+
+  const nuevoHash = await hashPassword(data.nuevaPassword);
+  await prisma.usuario.update({
+    where: { id: usuario.id },
+    data: {
+      passwordHash: nuevoHash,
+      primerIngreso: false,
+    },
+  });
+
+  return {
+    success: true,
+    message: 'Contraseña cambiada exitosamente',
+  };
+}
+
+async function logoutLocal(token: string): Promise<void> {
+  const sesion = await prisma.sesion.findFirst({
+    where: { token, activa: true },
+  });
+
+  if (!sesion) return;
+
+  await prisma.sesion.update({
+    where: { id: sesion.id },
+    data: { activa: false },
+  });
+}
+
+export const authService = {
+  async login(data: LoginDto): Promise<AuthResult> {
+    const correo = normalizeEmail(data.correo);
+
+    try {
+      const loginResponse = await sicopAuthClient.loginUser(correo, data.password);
+      if (!loginResponse.data?.token) {
+        return {
+          success: false,
+          message: 'Respuesta inválida del servicio de autenticación',
+        };
+      }
+
+      const rawUser = loginResponse.data.user || await sicopAuthClient.getMe(loginResponse.data.token);
+      const user = mapSicopAuthUserToSofiaAuthUser(rawUser);
+
+      return {
+        success: true,
+        message: 'Login exitoso',
+        requiresPasswordChange: user.primerIngreso,
+        token: loginResponse.data.token,
+        user,
+      };
+    } catch (error) {
+      if (error instanceof SicopIntegrationError) {
+        if (canUseLocalFallback()) {
+          incrementCounter('auth_fallback_local_attempt_total', 1, {
+            origin: 'sicop_integration_error',
+          });
+
+          const localResult = await loginLocal(data);
+          if (localResult.success) {
+            incrementCounter('auth_fallback_local_success_total', 1, {
+              origin: 'sicop_integration_error',
+            });
+            return localResult;
+          }
+        }
+
+        return {
+          success: false,
+          message: buildAuthErrorMessage(error),
+        };
+      }
+
+      if (canUseLocalFallback()) {
+        incrementCounter('auth_fallback_local_attempt_total', 1, {
+          origin: 'unexpected_error',
+        });
+
+        const localResult = await loginLocal(data);
+        if (localResult.success) {
+          incrementCounter('auth_fallback_local_success_total', 1, {
+            origin: 'unexpected_error',
+          });
+          return localResult;
+        }
+      }
+
+      return {
+        success: false,
+        message: 'Error interno del proceso de autenticación',
+      };
+    }
   },
 
-  async changePassword(
-    userId: string,
-    data: ChangePasswordDto,
-    ip?: string,
-    userAgent?: string
-  ): Promise<AuthResult> {
-    const { passwordActual, nuevaPassword } = data;
-
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: userId },
-    });
-
-    if (!usuario) {
-      return {
-        success: false,
-        message: 'Usuario no encontrado',
-      };
+  async me(token: string): Promise<AuthResult> {
+    if (isLocalToken(token)) {
+      incrementCounter('auth_local_token_verify_total');
+      return meLocal(token);
     }
 
-    const passwordValida = await comparePassword(passwordActual, usuario.passwordHash);
+    try {
+      const rawUser = await sicopAuthClient.getMe(token);
+      const user = mapSicopAuthUserToSofiaAuthUser(rawUser);
 
-    if (!passwordValida) {
-      await prisma.intentoLogin.create({
-        data: {
-          usuarioId: usuario.id,
-          correo: usuario.correo,
-          tipo: 'CAMBIO_PASSWORD',
-          exitoso: false,
-          ip: ip || null,
-          userAgent: userAgent || null,
-          motivoFallo: 'Contraseña actual incorrecta',
-        },
+      return {
+        success: true,
+        message: 'Sesión válida',
+        user,
+      };
+    } catch (error) {
+      if (error instanceof SicopIntegrationError && (error.statusCode === 401 || error.statusCode === 403)) {
+        return {
+          success: false,
+          message: 'Token inválido o expirado',
+        };
+      }
+
+      if (isLocalToken(token)) {
+        incrementCounter('auth_local_token_verify_total', 1, { origin: 'sicop_me_fallback' });
+        return meLocal(token);
+      }
+
+      return {
+        success: false,
+        message: 'No fue posible validar la sesión con SICOP',
+      };
+    }
+  },
+
+  async changePassword(token: string, data: ChangePasswordDto): Promise<AuthResult> {
+    if (isLocalToken(token)) {
+      incrementCounter('auth_local_token_verify_total', 1, { origin: 'change_password' });
+      return changePasswordLocal(token, data);
+    }
+
+    try {
+      await sicopAuthClient.requestWithUserToken(token, '/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          currentPassword: data.passwordActual,
+          newPassword: data.nuevaPassword,
+          passwordActual: data.passwordActual,
+          nuevaPassword: data.nuevaPassword,
+        }),
       });
 
       return {
-        success: false,
-        message: 'La contraseña actual es incorrecta',
+        success: true,
+        message: 'Contraseña cambiada exitosamente',
       };
-    }
+    } catch (error) {
+      if (error instanceof SicopIntegrationError) {
+        return {
+          success: false,
+          message: error.statusCode === 404
+            ? 'El cambio de contraseña no está disponible en SICOP'
+            : 'No fue posible cambiar la contraseña',
+        };
+      }
 
-    const validacion = validatePasswordPolicy(nuevaPassword);
-
-    if (!validacion.valid) {
       return {
         success: false,
-        message: validacion.errors.join('. '),
+        message: 'Error interno al cambiar contraseña',
       };
     }
-
-    const nuevoHash = await hashPassword(nuevaPassword);
-
-    await prisma.usuario.update({
-      where: { id: userId },
-      data: {
-        passwordHash: nuevoHash,
-        primerIngreso: false,
-      },
-    });
-
-    await prisma.intentoLogin.create({
-      data: {
-        usuarioId: usuario.id,
-        correo: usuario.correo,
-        tipo: 'CAMBIO_PASSWORD',
-        exitoso: true,
-        ip: ip || null,
-        userAgent: userAgent || null,
-      },
-    });
-
-    await prisma.sesion.updateMany({
-      where: {
-        usuarioId: usuario.id,
-        activa: true,
-      },
-      data: {
-        ultimoAcceso: new Date(),
-      },
-    });
-
-    return {
-      success: true,
-      message: 'Contraseña cambiada exitosamente',
-    };
   },
 
   async verifySession(token: string): Promise<AuthResult> {
-    const sesion = await prisma.sesion.findFirst({
-      where: {
-        token,
-        activa: true,
-        expiresAt: { gt: new Date() },
-      },
-      include: {
-        usuario: true,
-      },
-    });
-
-    if (!sesion) {
-      return {
-        success: false,
-        message: 'Sesión inválida o expirada',
-      };
-    }
-
-    await prisma.sesion.update({
-      where: { id: sesion.id },
-      data: { ultimoAcceso: new Date() },
-    });
-
-    return {
-      success: true,
-      message: 'Sesión válida',
-      user: {
-        id: sesion.usuario.id,
-        nombreCompleto: sesion.usuario.nombreCompleto,
-        correo: sesion.usuario.correo,
-        rol: sesion.usuario.rol,
-        primerIngreso: sesion.usuario.primerIngreso,
-      },
-    };
+    return this.me(token);
   },
 
   async logout(token: string): Promise<AuthResult> {
-    const sesion = await prisma.sesion.findFirst({
-      where: { token },
-    });
+    if (isLocalToken(token)) {
+      incrementCounter('auth_local_token_verify_total', 1, { origin: 'logout' });
+      await logoutLocal(token);
+      return {
+        success: true,
+        message: 'Sesión cerrada exitosamente',
+      };
+    }
 
-    if (sesion) {
-      await prisma.sesion.update({
-        where: { id: sesion.id },
-        data: { activa: false },
+    try {
+      await sicopAuthClient.requestWithUserToken(token, '/auth/logout', {
+        method: 'POST',
       });
+    } catch {
+      // El logout remoto no debe bloquear cierre de sesión local del frontend.
     }
 
     return {
@@ -394,18 +403,6 @@ export const authService = {
       message: 'Sesión cerrada exitosamente',
     };
   },
-
-  async getLoginAttempts(correo: string): Promise<number> {
-    const ventanaTiempo = new Date(
-      Date.now() - config.security.loginAttemptWindowMinutes * 60 * 1000
-    );
-
-    return prisma.intentoLogin.count({
-      where: {
-        correo,
-        exitoso: false,
-        creadoEn: { gte: ventanaTiempo },
-      },
-    });
-  },
 };
+
+export default authService;

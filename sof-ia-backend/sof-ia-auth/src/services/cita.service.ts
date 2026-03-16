@@ -1,11 +1,11 @@
-import { createHash, randomUUID } from 'crypto';
-import { EstadoCita, Modalidad, Prisma, PrismaClient } from '@prisma/client';
-import { googleCalendarService } from './google-calendar.service';
+import { sicopAppointmentsClient } from '../integrations/sicop/sicop-appointments.client';
+import { mapSicopAppointmentToSofiaCita, mapSofiaCitaToSicopPayload } from '../integrations/sicop/sicop-mappers';
+import { SicopIntegrationError } from '../integrations/sicop/sicop.types';
 
-const prisma = new PrismaClient();
+type EstadoCita = 'AGENDADA' | 'CANCELADA' | 'COMPLETIDA';
+type Modalidad = 'PRESENCIAL' | 'VIRTUAL';
 
-const BOGOTA_TZ_OFFSET = '-05:00';
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const BOGOTA_OFFSET = '-05:00';
 
 function buildHalfHourSlots(startHour: number, endHourInclusive: number): string[] {
   const slots: string[] = [];
@@ -23,11 +23,6 @@ const MODALIDAD_SLOTS: Record<Modalidad, string[]> = {
   VIRTUAL: buildHalfHourSlots(8, 17),
 };
 
-const MODALIDAD_DAILY_CAP: Record<Modalidad, number> = {
-  PRESENCIAL: 10,
-  VIRTUAL: 50,
-};
-
 class CitaServiceError extends Error {
   constructor(public readonly code: string, message: string) {
     super(message);
@@ -35,107 +30,23 @@ class CitaServiceError extends Error {
   }
 }
 
-type ChatbotStoredAppointment = {
-  mode: 'presencial' | 'virtual';
-  status: 'agendada' | 'cancelada';
-  day: string;
-  hour24: number;
-  minute: 0 | 30;
-  updatedAt: string;
-};
-
-function parseChatbotAppointmentsFromProfile(profile: any): ChatbotStoredAppointment[] {
-  const fromList = Array.isArray(profile?.lastAppointments) ? profile.lastAppointments : [];
-  const fromLast = profile?.lastAppointment ? [profile.lastAppointment] : [];
-  const source = [...fromList, ...fromLast];
-
-  const parsed = source
-    .map((item: any) => {
-      const mode = String(item?.mode || '').toLowerCase();
-      const status = String(item?.status || 'agendada').toLowerCase();
-      const day = String(item?.day || '').toLowerCase();
-      const hour24 = typeof item?.hour24 === 'number' ? item.hour24 : Number.NaN;
-      const minuteRaw = typeof item?.minute === 'number' ? item.minute : 0;
-      const updatedAt = typeof item?.updatedAt === 'string' ? item.updatedAt : '';
-
-      const validMode = mode === 'presencial' || mode === 'virtual';
-      const validStatus = status === 'agendada' || status === 'cancelada';
-      const validDay = ['lunes', 'martes', 'miercoles', 'miércoles', 'jueves', 'viernes'].includes(day);
-      const validHour = Number.isFinite(hour24) && hour24 >= 0 && hour24 <= 23;
-      const validMinute = minuteRaw === 0 || minuteRaw === 30;
-      if (!validMode || !validStatus || !validDay || !validHour || !validMinute || !updatedAt) return null;
-
-      return {
-        mode,
-        status,
-        day,
-        hour24,
-        minute: minuteRaw as 0 | 30,
-        updatedAt,
-      } as ChatbotStoredAppointment;
-    })
-    .filter((item: ChatbotStoredAppointment | null): item is ChatbotStoredAppointment => Boolean(item));
-
-  const dedup = new Map<string, ChatbotStoredAppointment>();
-  for (const item of parsed) {
-    const key = `${item.updatedAt}|${item.day}|${item.hour24}|${item.minute}|${item.mode}|${item.status}`;
-    if (!dedup.has(key)) dedup.set(key, item);
-  }
-
-  return Array.from(dedup.values());
-}
-
-async function fetchChatbotAppointmentStats() {
-  const rows = await prisma.$queryRawUnsafe<Array<{ conversationId: string; contextData: any }>>(
-    `
-    SELECT
-      c.id AS "conversationId",
-      ctx.data AS "contextData"
-    FROM "Conversation" c
-    JOIN "ConversationContext" ctx ON ctx."conversationId" = c.id
-    WHERE
-      (ctx.data -> 'profile' -> 'lastAppointment') IS NOT NULL
-      OR jsonb_typeof(ctx.data -> 'profile' -> 'lastAppointments') = 'array'
-    `,
-  );
-
-  const unique = new Map<string, ChatbotStoredAppointment>();
-  for (const row of rows) {
-    const profile = row.contextData?.profile || {};
-    const appointments = parseChatbotAppointmentsFromProfile(profile);
-    for (const item of appointments) {
-      const key = `${row.conversationId}|${item.updatedAt}|${item.day}|${item.hour24}|${item.minute}|${item.mode}|${item.status}`;
-      if (!unique.has(key)) unique.set(key, item);
-    }
-  }
-
-  const all = Array.from(unique.values());
-  const agendadas = all.filter((x) => x.status === 'agendada');
-
-  return {
-    total: all.length,
-    agendadas: agendadas.length,
-    canceladas: all.filter((x) => x.status === 'cancelada').length,
-    presencial: agendadas.filter((x) => x.mode === 'presencial').length,
-    virtual: agendadas.filter((x) => x.mode === 'virtual').length,
-  };
-}
-
 function normalizeHora(hora: string): string {
-  const trimmed = String(hora || '').trim();
-  const match = /^(\d{1,2})(?::(\d{2}))?$/.exec(trimmed);
-  if (!match) throw new CitaServiceError('INVALID_HOUR', 'La hora no tiene un formato válido (HH:00 o HH:30).');
+  const raw = String(hora || '').trim();
+  const match = /^(\d{1,2}):(\d{2})$/.exec(raw);
+  if (!match) {
+    throw new CitaServiceError('INVALID_HOUR', 'La hora no tiene un formato válido (HH:MM).');
+  }
 
   const hh = Number(match[1]);
-  const mm = Number(match[2] ?? '0');
-  if (!Number.isInteger(hh) || hh < 0 || hh > 23 || (mm !== 0 && mm !== 30)) {
-    throw new CitaServiceError('INVALID_HOUR', 'La hora no tiene un formato válido (HH:00 o HH:30).');
+  const mm = Number(match[2]);
+  if (!Number.isFinite(hh) || hh < 0 || hh > 23 || !Number.isFinite(mm) || mm < 0 || mm > 59) {
+    throw new CitaServiceError('INVALID_HOUR', 'La hora no tiene un formato válido (HH:MM).');
   }
 
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
-function formatDateInBogota(date: Date): string {
+function datePartInBogota(date: Date): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Bogota',
     year: 'numeric',
@@ -143,12 +54,12 @@ function formatDateInBogota(date: Date): string {
     day: '2-digit',
   }).formatToParts(date);
 
-  const year = parts.find((item) => item.type === 'year')?.value;
-  const month = parts.find((item) => item.type === 'month')?.value;
-  const day = parts.find((item) => item.type === 'day')?.value;
+  const year = parts.find((p) => p.type === 'year')?.value;
+  const month = parts.find((p) => p.type === 'month')?.value;
+  const day = parts.find((p) => p.type === 'day')?.value;
 
   if (!year || !month || !day) {
-    throw new CitaServiceError('INVALID_DATE', 'No fue posible interpretar la fecha de la cita.');
+    throw new CitaServiceError('INVALID_DATE', 'La fecha no es válida.');
   }
 
   return `${year}-${month}-${day}`;
@@ -156,363 +67,140 @@ function formatDateInBogota(date: Date): string {
 
 function resolveDateKey(fecha: Date | string): string {
   if (typeof fecha === 'string') {
-    const normalized = fecha.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized;
-    const parsed = new Date(normalized);
+    const trimmed = fecha.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const parsed = new Date(trimmed);
     if (Number.isNaN(parsed.getTime())) {
       throw new CitaServiceError('INVALID_DATE', 'La fecha no es válida. Usa formato YYYY-MM-DD.');
     }
-    return formatDateInBogota(parsed);
+    return datePartInBogota(parsed);
   }
 
   if (!(fecha instanceof Date) || Number.isNaN(fecha.getTime())) {
     throw new CitaServiceError('INVALID_DATE', 'La fecha no es válida.');
   }
-  return formatDateInBogota(fecha);
+
+  return datePartInBogota(fecha);
 }
 
-function buildDayRange(fecha: Date | string): { dayKey: string; start: Date; end: Date; dayOfWeek: number } {
+function buildDateTimeIso(fecha: Date | string, hora: string): string {
   const dayKey = resolveDateKey(fecha);
-  const start = new Date(`${dayKey}T00:00:00${BOGOTA_TZ_OFFSET}`);
-  const end = new Date(start.getTime() + ONE_DAY_MS);
-
-  if (Number.isNaN(start.getTime())) {
-    throw new CitaServiceError('INVALID_DATE', 'La fecha no es válida.');
-  }
-
-  const weekday = new Intl.DateTimeFormat('en-US', {
-    weekday: 'short',
-    timeZone: 'America/Bogota',
-  }).format(start);
-
-  const weekdayMap: Record<string, number> = {
-    Sun: 0,
-    Mon: 1,
-    Tue: 2,
-    Wed: 3,
-    Thu: 4,
-    Fri: 5,
-    Sat: 6,
-  };
-  const dayOfWeek = weekdayMap[weekday] ?? 0;
-
-  return { dayKey, start, end, dayOfWeek };
-}
-
-function getSlotLockKey(dayKey: string, hora: string, modalidad: Modalidad): number {
-  const raw = `${dayKey}|${hora}|${modalidad}`;
-  let hash = 0;
-  for (let i = 0; i < raw.length; i += 1) {
-    hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash || 1);
-}
-
-function getDayLockKey(dayKey: string, modalidad: Modalidad): number {
-  const raw = `DAY|${dayKey}|${modalidad}`;
-  let hash = 0;
-  for (let i = 0; i < raw.length; i += 1) {
-    hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash || 1);
-}
-
-function buildDateTimeFromDayAndHour(dayKey: string, hora: string): Date {
   const normalizedHour = normalizeHora(hora);
-  return new Date(`${dayKey}T${normalizedHour}:00${BOGOTA_TZ_OFFSET}`);
+  const candidate = `${dayKey}T${normalizedHour}:00${BOGOTA_OFFSET}`;
+  const parsed = new Date(candidate);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new CitaServiceError('INVALID_DATE', 'No fue posible construir fecha y hora de cita.');
+  }
+  return candidate;
 }
 
-function buildMeetSummary(modalidad: Modalidad, estudianteNombre: string): string {
-  return modalidad === 'VIRTUAL'
-    ? `Cita virtual SOF-IA - ${estudianteNombre}`
-    : `Cita SOF-IA - ${estudianteNombre}`;
+function mapSicopError(error: SicopIntegrationError): CitaServiceError {
+  if (error.statusCode === 401 || error.statusCode === 403) {
+    return new CitaServiceError('SICOP_UNAUTHORIZED', 'No autorizado para operar citas en SICOP.');
+  }
+  if (error.statusCode === 404) {
+    return new CitaServiceError('NOT_FOUND', 'Cita no encontrada en SICOP.');
+  }
+  if (error.statusCode === 409) {
+    return new CitaServiceError('SLOT_NOT_AVAILABLE', 'El horario seleccionado no está disponible.');
+  }
+  return new CitaServiceError('SICOP_UNAVAILABLE', 'No fue posible consultar citas en SICOP.');
 }
 
-function getJitsiBaseUrl(): string {
-  const base = String(process.env.JITSI_BASE_URL || 'https://meet.jit.si').trim();
-  return (base || 'https://meet.jit.si').replace(/\/+$/, '');
-}
-
-function getJitsiRoomPrefix(): string {
-  return String(process.env.JITSI_ROOM_PREFIX || 'sofia-cita').trim() || 'sofia-cita';
-}
-
-function getJitsiPasswordSecret(): string {
-  return String(process.env.JITSI_PASSWORD_SECRET || 'sofia-jitsi-default-secret').trim() || 'sofia-jitsi-default-secret';
-}
-
-function getFixedJitsiPassword(): string {
-  return String(process.env.JITSI_FIXED_PASSWORD || '').trim();
-}
-
-function buildJitsiMeetingDetails(input: { citaId: string; fecha: Date | string; hora: string }): { link: string; password: string } {
-  const fechaIso = new Date(input.fecha).toISOString();
-  const hora = String(input.hora || '').trim();
-  const source = `${input.citaId}|${fechaIso}|${hora}|${getJitsiPasswordSecret()}`;
-  const hash = createHash('sha256').update(source).digest('hex');
-  const roomName = `${getJitsiRoomPrefix()}-${hash.slice(0, 20)}`;
-  const derivedPassword = `${hash.slice(20, 24)}-${hash.slice(24, 28)}-${hash.slice(28, 32)}`.toUpperCase();
-  const password = getFixedJitsiPassword() || derivedPassword;
+function ensureCitaShape(raw: Record<string, any>): Record<string, any> {
   return {
-    link: `${getJitsiBaseUrl()}/${roomName}`,
-    password,
+    ...raw,
+    estudianteId: raw.estudianteId || raw.studentId || null,
+    estudiante: {
+      id: raw.estudiante?.id || raw.estudianteId || raw.studentId || 'sicop-unassigned',
+      nombre: raw.estudiante?.nombre || raw.usuarioNombre || 'Estudiante',
+      correo: raw.estudiante?.correo || raw.usuarioCorreo || null,
+    },
   };
 }
 
-function buildCalendarDescription(baseDescription: string, jitsi: { link: string; password: string }): string {
-  return `${baseDescription}\n\nIMPORTANTE: IGNORA EL BOTON \"UNETE CON GOOGLE MEET\". USA EL LINK JITSI DE ABAJO.\n\n==============================\n>>> LINK OFICIAL DE LA REUNION (JITSI) <<<\n>>> ENTRA POR ESTE LINK <<<\n${jitsi.link}\n>>> CONTRASENA <<<\n${jitsi.password}\n==============================`;
-}
-
-async function getOccupiedHours(params: {
-  tx: PrismaClient | Prisma.TransactionClient;
-  start: Date;
-  end: Date;
-  modalidad: Modalidad;
-  excludeCitaId?: string;
-}): Promise<string[]> {
-  const citas = await params.tx.cita.findMany({
-    where: {
-      fecha: {
-        gte: params.start,
-        lt: params.end,
-      },
-      modalidad: params.modalidad,
-      estado: 'AGENDADA',
-      ...(params.excludeCitaId ? { id: { not: params.excludeCitaId } } : {}),
-    },
-    select: { hora: true },
-  });
-
-  return Array.from(new Set(citas.map((item) => normalizeHora(item.hora))));
-}
-
-async function getEligibleStudents(params: {
-  tx: PrismaClient | Prisma.TransactionClient;
-  modalidad: Modalidad;
-  occupiedStudentIds: string[];
-}) {
-  return params.tx.estudiante.findMany({
-    where: {
-      modalidad: params.modalidad,
-      estado: 'ACTIVO',
-      accesoCitas: true,
-      ...(params.occupiedStudentIds.length > 0 ? { id: { notIn: params.occupiedStudentIds } } : {}),
-    },
-    select: {
-      id: true,
-      nombre: true,
-      correo: true,
-    },
-  });
-}
-
-async function countActiveStudentsByModalidad(params: {
-  tx: PrismaClient | Prisma.TransactionClient;
-  modalidad: Modalidad;
-}): Promise<number> {
-  return params.tx.estudiante.count({
-    where: {
-      modalidad: params.modalidad,
-      estado: 'ACTIVO',
-      accesoCitas: true,
-    },
-  });
-}
-
-async function countDailyAppointments(params: {
-  tx: PrismaClient | Prisma.TransactionClient;
-  start: Date;
-  end: Date;
-  modalidad: Modalidad;
-  excludeCitaId?: string;
-}): Promise<number> {
-  return params.tx.cita.count({
-    where: {
-      fecha: {
-        gte: params.start,
-        lt: params.end,
-      },
-      modalidad: params.modalidad,
-      estado: 'AGENDADA',
-      ...(params.excludeCitaId ? { id: { not: params.excludeCitaId } } : {}),
-    },
-  });
-}
-
-async function countSlotAppointments(params: {
-  tx: PrismaClient | Prisma.TransactionClient;
-  start: Date;
-  end: Date;
-  modalidad: Modalidad;
-  hora: string;
-  excludeCitaId?: string;
-}): Promise<number> {
-  return params.tx.cita.count({
-    where: {
-      fecha: {
-        gte: params.start,
-        lt: params.end,
-      },
-      modalidad: params.modalidad,
-      hora: params.hora,
-      estado: 'AGENDADA',
-      ...(params.excludeCitaId ? { id: { not: params.excludeCitaId } } : {}),
-    },
-  });
-}
-
-async function getDailySlotCounts(params: {
-  tx: PrismaClient | Prisma.TransactionClient;
-  start: Date;
-  end: Date;
-  modalidad: Modalidad;
-}): Promise<Map<string, number>> {
-  const rows = await params.tx.cita.groupBy({
-    by: ['hora'],
-    where: {
-      fecha: {
-        gte: params.start,
-        lt: params.end,
-      },
-      modalidad: params.modalidad,
-      estado: 'AGENDADA',
-    },
-    _count: {
-      _all: true,
-    },
-  });
-
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    counts.set(normalizeHora(row.hora), Number(row._count._all || 0));
-  }
-  return counts;
-}
-
-async function pickBalancedStudent(params: {
-  tx: PrismaClient | Prisma.TransactionClient;
-  modalidad: Modalidad;
-  start: Date;
-  end: Date;
-  occupiedStudentIds: string[];
-}): Promise<{ id: string; nombre: string; correo: string | null }> {
-  const eligibleStudents = await getEligibleStudents({
-    tx: params.tx,
-    modalidad: params.modalidad,
-    occupiedStudentIds: params.occupiedStudentIds,
-  });
-
-  if (eligibleStudents.length === 0) {
-    throw new CitaServiceError(
-      'NO_ELIGIBLE_STUDENTS',
-      `No hay estudiantes elegibles en modalidad ${params.modalidad.toLowerCase()} para este horario.`,
-    );
-  }
-
-  const dailyCounts = await params.tx.cita.groupBy({
-    by: ['estudianteId'],
-    where: {
-      fecha: {
-        gte: params.start,
-        lt: params.end,
-      },
-      modalidad: params.modalidad,
-      estado: 'AGENDADA',
-      estudianteId: { in: eligibleStudents.map((item) => item.id) },
-    },
-    _count: {
-      _all: true,
-    },
-  });
-
-  const countByStudentId = new Map<string, number>();
-  for (const row of dailyCounts) {
-    countByStudentId.set(row.estudianteId, Number(row._count._all || 0));
-  }
-
-  let minCount = Number.MAX_SAFE_INTEGER;
-  for (const student of eligibleStudents) {
-    const count = countByStudentId.get(student.id) || 0;
-    if (count < minCount) minCount = count;
-  }
-
-  const candidates = eligibleStudents.filter((student) => (countByStudentId.get(student.id) || 0) === minCount);
-  return candidates[Math.floor(Math.random() * candidates.length)];
+function normalizeEstadoInput(value: unknown): EstadoCita {
+  const raw = String(value || 'AGENDADA').toUpperCase();
+  if (raw === 'CANCELADA') return 'CANCELADA';
+  if (raw === 'COMPLETIDA') return 'COMPLETIDA';
+  return 'AGENDADA';
 }
 
 export const citaService = {
   async getAll(filtros?: {
     estudianteId?: string;
-    estado?: EstadoCita;
-    modalidad?: Modalidad;
+    estado?: EstadoCita | string;
+    modalidad?: Modalidad | string;
+    sourceSystem?: string;
+    origen?: string;
+    from?: string;
+    to?: string;
+    updatedSince?: string;
   }) {
-    const where: any = {};
+    try {
+      const citas = await sicopAppointmentsClient.getAppointments({
+        estado: filtros?.estado,
+        modalidad: filtros?.modalidad,
+        sourceSystem: filtros?.sourceSystem,
+        origen: filtros?.origen,
+        from: filtros?.from,
+        to: filtros?.to,
+        updatedSince: filtros?.updatedSince,
+      });
 
-    if (filtros?.estudianteId) where.estudianteId = filtros.estudianteId;
-    if (filtros?.estado) where.estado = filtros.estado;
-    if (filtros?.modalidad) where.modalidad = filtros.modalidad;
-
-    return prisma.cita.findMany({
-      where,
-      include: { estudiante: true },
-      orderBy: { fecha: 'desc' },
-    });
+      return citas
+        .map((cita) => ensureCitaShape(mapSicopAppointmentToSofiaCita(cita) as Record<string, any>))
+        .filter((cita) => {
+          if (filtros?.estudianteId && String(cita.estudianteId) !== String(filtros.estudianteId)) return false;
+          if (filtros?.estado && String(cita.estado || '').toUpperCase() !== String(filtros.estado).toUpperCase()) return false;
+          if (filtros?.modalidad && String(cita.modalidad || '').toUpperCase() !== String(filtros.modalidad).toUpperCase()) return false;
+          return true;
+        })
+        .sort((a, b) => new Date(String(b.actualizadoEn || b.creadoEn || 0)).getTime() - new Date(String(a.actualizadoEn || a.creadoEn || 0)).getTime());
+    } catch (error) {
+      if (error instanceof SicopIntegrationError) {
+        throw mapSicopError(error);
+      }
+      throw error;
+    }
   },
 
   async getById(id: string) {
-    return prisma.cita.findUnique({
-      where: { id },
-      include: { estudiante: true },
-    });
+    try {
+      const cita = await sicopAppointmentsClient.getAppointmentById(id);
+      return ensureCitaShape(mapSicopAppointmentToSofiaCita(cita) as Record<string, any>);
+    } catch (error) {
+      if (error instanceof SicopIntegrationError && error.statusCode === 404) {
+        return null;
+      }
+      if (error instanceof SicopIntegrationError) {
+        throw mapSicopError(error);
+      }
+      throw error;
+    }
   },
 
-  async getDisponibilidad(fecha: Date | string, modalidad: Modalidad): Promise<{
+  async getDisponibilidad(fecha: Date | string, modalidad: Modalidad | string): Promise<{
     fechaDisponible: boolean;
     horasDisponibles: string[];
     motivoIndisponibilidad?: string;
   }> {
-    const range = buildDayRange(fecha);
-    if (range.dayOfWeek === 0 || range.dayOfWeek === 6) {
-      return {
-        fechaDisponible: false,
-        horasDisponibles: [],
-        motivoIndisponibilidad: 'No se atiende fines de semana.',
-      };
+    const mode = String(modalidad || '').toUpperCase();
+    if (mode !== 'PRESENCIAL' && mode !== 'VIRTUAL') {
+      throw new CitaServiceError('INVALID_MODE', 'La modalidad debe ser PRESENCIAL o VIRTUAL.');
     }
 
-    const slots = MODALIDAD_SLOTS[modalidad] ?? [];
-    if (slots.length === 0) {
-      return {
-        fechaDisponible: false,
-        horasDisponibles: [],
-        motivoIndisponibilidad: 'No hay jornada configurada para la modalidad seleccionada.',
-      };
-    }
+    const dayKey = resolveDateKey(fecha);
+    const citas = await this.getAll({
+      estado: 'AGENDADA',
+      modalidad: mode,
+      from: dayKey,
+      to: dayKey,
+      sourceSystem: 'SOFIA',
+    });
 
-    const [activeStudents, dailyAppointments, slotCounts] = await Promise.all([
-      countActiveStudentsByModalidad({ tx: prisma, modalidad }),
-      countDailyAppointments({ tx: prisma, start: range.start, end: range.end, modalidad }),
-      getDailySlotCounts({ tx: prisma, start: range.start, end: range.end, modalidad }),
-    ]);
-
-    if (activeStudents <= 0) {
-      return {
-        fechaDisponible: false,
-        horasDisponibles: [],
-        motivoIndisponibilidad: `No hay estudiantes activos para modalidad ${modalidad.toLowerCase()}.`,
-      };
-    }
-
-    const dailyCap = MODALIDAD_DAILY_CAP[modalidad] ?? 0;
-    if (dailyAppointments >= dailyCap) {
-      return {
-        fechaDisponible: false,
-        horasDisponibles: [],
-        motivoIndisponibilidad: `Se alcanzó el tope diario de ${dailyCap} citas para modalidad ${modalidad.toLowerCase()}.`,
-      };
-    }
-
-    const horasDisponibles = slots.filter((slot) => (slotCounts.get(slot) || 0) < activeStudents);
+    const horasOcupadas = new Set(citas.map((cita) => normalizeHora(String(cita.hora || ''))));
+    const horasDisponibles = MODALIDAD_SLOTS[mode as Modalidad].filter((slot) => !horasOcupadas.has(slot));
 
     return {
       fechaDisponible: horasDisponibles.length > 0,
@@ -524,300 +212,120 @@ export const citaService = {
   async create(data: {
     fecha: Date | string;
     hora: string;
-    modalidad: Modalidad;
+    modalidad: Modalidad | string;
     motivo?: string;
+    estudianteId?: string;
     usuarioNombre?: string;
     usuarioTipoDocumento?: string;
     usuarioNumeroDocumento?: string;
     usuarioCorreo?: string;
     usuarioTelefono?: string;
+    conversacionId?: string;
+    enlaceReunion?: string;
   }) {
-    const normalizedHora = normalizeHora(data.hora);
-    const range = buildDayRange(data.fecha);
-    if (range.dayOfWeek === 0 || range.dayOfWeek === 6) {
-      throw new CitaServiceError('INVALID_DATE', 'No se pueden agendar citas los fines de semana.');
+    try {
+      const fechaHoraISO = buildDateTimeIso(data.fecha, data.hora);
+      const payload = mapSofiaCitaToSicopPayload({
+        ...data,
+        fecha: fechaHoraISO,
+        hora: normalizeHora(data.hora),
+        estado: 'AGENDADA',
+      });
+
+      const created = await sicopAppointmentsClient.createAppointment(payload);
+      return ensureCitaShape(mapSicopAppointmentToSofiaCita(created) as Record<string, any>);
+    } catch (error) {
+      if (error instanceof SicopIntegrationError) {
+        throw mapSicopError(error);
+      }
+      throw error;
     }
-
-    return prisma.$transaction(async (tx) => {
-      const citaId = randomUUID();
-      const dayLockKey = getDayLockKey(range.dayKey, data.modalidad);
-      const lockKey = getSlotLockKey(range.dayKey, normalizedHora, data.modalidad);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${dayLockKey})`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
-
-      const slots = MODALIDAD_SLOTS[data.modalidad] ?? [];
-      if (!slots.includes(normalizedHora)) {
-        throw new CitaServiceError('INVALID_HOUR', 'La hora seleccionada no pertenece a la jornada de la modalidad.');
-      }
-
-      const [activeStudents, dailyAppointments, slotAppointments] = await Promise.all([
-        countActiveStudentsByModalidad({ tx, modalidad: data.modalidad }),
-        countDailyAppointments({ tx, start: range.start, end: range.end, modalidad: data.modalidad }),
-        countSlotAppointments({ tx, start: range.start, end: range.end, modalidad: data.modalidad, hora: normalizedHora }),
-      ]);
-
-      if (activeStudents <= 0) {
-        throw new CitaServiceError(
-          'NO_ELIGIBLE_STUDENTS',
-          `No hay estudiantes activos habilitados para modalidad ${data.modalidad.toLowerCase()}.`,
-        );
-      }
-
-      const dailyCap = MODALIDAD_DAILY_CAP[data.modalidad] ?? 0;
-      if (dailyAppointments >= dailyCap) {
-        throw new CitaServiceError(
-          'DAILY_CAP_REACHED',
-          `Se alcanzó el tope diario de ${dailyCap} citas para modalidad ${data.modalidad.toLowerCase()}.`,
-        );
-      }
-
-      if (slotAppointments >= activeStudents) {
-        throw new CitaServiceError('SLOT_NOT_AVAILABLE', 'La hora seleccionada no tiene más cupos disponibles.');
-      }
-
-      const occupiedAtSlot = await tx.cita.findMany({
-        where: {
-          fecha: {
-            gte: range.start,
-            lt: range.end,
-          },
-          modalidad: data.modalidad,
-          hora: normalizedHora,
-          estado: 'AGENDADA',
-        },
-        select: { estudianteId: true },
-      });
-
-      const picked = await pickBalancedStudent({
-        tx,
-        modalidad: data.modalidad,
-        occupiedStudentIds: occupiedAtSlot.map((item) => item.estudianteId),
-        start: range.start,
-        end: range.end,
-      });
-      let enlaceReunion: string | null = null;
-
-      if (data.modalidad === 'VIRTUAL') {
-        const eventStart = buildDateTimeFromDayAndHour(range.dayKey, normalizedHora);
-        const eventEnd = new Date(eventStart.getTime() + 60 * 60 * 1000);
-        const jitsi = buildJitsiMeetingDetails({ citaId, fecha: range.start, hora: normalizedHora });
-        const attendees = [picked.correo, data.usuarioCorreo].filter(
-          (value): value is string => Boolean(value && value.trim()),
-        );
-
-        try {
-          const meetEvent = await googleCalendarService.createMeetEvent({
-            summary: buildMeetSummary(data.modalidad, picked.nombre),
-            description: buildCalendarDescription(data.motivo || 'Cita virtual del Consultorio Jurídico SOF-IA', jitsi),
-            attendeeEmails: attendees,
-            start: eventStart,
-            end: eventEnd,
-          });
-          enlaceReunion = meetEvent.meetLink;
-        } catch (error) {
-          const details = error instanceof Error ? error.message : String(error);
-          throw new CitaServiceError('MEET_LINK_FAILED', `No fue posible generar el enlace de Google Meet. ${details}`);
-        }
-      }
-
-      return tx.cita.create({
-        data: {
-          id: citaId,
-          estudianteId: picked.id,
-          fecha: range.start,
-          hora: normalizedHora,
-          modalidad: data.modalidad,
-          motivo: data.motivo,
-          estado: 'AGENDADA',
-          usuarioNombre: data.usuarioNombre,
-          usuarioTipoDocumento: data.usuarioTipoDocumento,
-          usuarioNumeroDocumento: data.usuarioNumeroDocumento,
-          usuarioCorreo: data.usuarioCorreo,
-          usuarioTelefono: data.usuarioTelefono,
-          enlaceReunion,
-        },
-        include: { estudiante: true },
-      });
-    });
   },
 
   async update(id: string, data: Partial<{
-    fecha: Date;
+    fecha: Date | string;
     hora: string;
-    modalidad: Modalidad;
+    modalidad: Modalidad | string;
     motivo: string;
-    estado: EstadoCita;
+    estado: EstadoCita | string;
+    estudianteId: string;
+    usuarioNombre: string;
+    usuarioTipoDocumento: string;
+    usuarioNumeroDocumento: string;
+    usuarioCorreo: string;
+    usuarioTelefono: string;
   }>) {
-    return prisma.cita.update({
-      where: { id },
-      data,
-      include: { estudiante: true },
-    });
+    try {
+      const payload: Record<string, unknown> = {};
+      if (data.fecha !== undefined || data.hora !== undefined) {
+        const fechaBase = data.fecha ?? new Date().toISOString();
+        const horaBase = data.hora ?? '09:00';
+        payload.fecha = buildDateTimeIso(fechaBase, horaBase);
+        payload.hora = normalizeHora(horaBase);
+      }
+
+      if (data.modalidad !== undefined) payload.modalidad = String(data.modalidad).toUpperCase();
+      if (data.motivo !== undefined) payload.motivo = data.motivo;
+      if (data.estado !== undefined) payload.estado = normalizeEstadoInput(data.estado);
+      if (data.estudianteId !== undefined) payload.estudianteId = data.estudianteId;
+      if (data.usuarioNombre !== undefined) payload.usuarioNombre = data.usuarioNombre;
+      if (data.usuarioTipoDocumento !== undefined) payload.usuarioTipoDocumento = data.usuarioTipoDocumento;
+      if (data.usuarioNumeroDocumento !== undefined) payload.usuarioNumeroDocumento = data.usuarioNumeroDocumento;
+      if (data.usuarioCorreo !== undefined) payload.usuarioCorreo = data.usuarioCorreo;
+      if (data.usuarioTelefono !== undefined) payload.usuarioTelefono = data.usuarioTelefono;
+
+      const updated = await sicopAppointmentsClient.updateAppointment(id, payload);
+      return ensureCitaShape(mapSicopAppointmentToSofiaCita(updated) as Record<string, any>);
+    } catch (error) {
+      if (error instanceof SicopIntegrationError) {
+        throw mapSicopError(error);
+      }
+      throw error;
+    }
   },
 
   async delete(id: string) {
-    return prisma.cita.delete({ where: { id } });
+    try {
+      await sicopAppointmentsClient.deleteAppointment(id);
+    } catch (error) {
+      if (error instanceof SicopIntegrationError) {
+        throw mapSicopError(error);
+      }
+      throw error;
+    }
   },
 
   async cancelar(id: string, motivo?: string) {
-    return prisma.cita.update({
-      where: { id },
-      data: {
-        estado: 'CANCELADA',
-        motivo: motivo || 'Cancelado por el administrador',
-      },
-      include: { estudiante: true },
+    return this.update(id, {
+      estado: 'CANCELADA',
+      motivo: motivo || 'Cancelada desde SOFIA',
     });
   },
 
   async reprogramar(id: string, nuevaFecha: Date | string, nuevaHora: string) {
-    const citaActual = await prisma.cita.findUnique({ where: { id } });
-    if (!citaActual) {
-      throw new CitaServiceError('NOT_FOUND', 'Cita no encontrada.');
-    }
-
-    const normalizedHora = normalizeHora(nuevaHora);
-    const range = buildDayRange(nuevaFecha);
-    if (range.dayOfWeek === 0 || range.dayOfWeek === 6) {
-      throw new CitaServiceError('INVALID_DATE', 'No se pueden agendar citas los fines de semana.');
-    }
-
-    return prisma.$transaction(async (tx) => {
-      const dayLockKey = getDayLockKey(range.dayKey, citaActual.modalidad);
-      const lockKey = getSlotLockKey(range.dayKey, normalizedHora, citaActual.modalidad);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${dayLockKey})`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
-
-      const slots = MODALIDAD_SLOTS[citaActual.modalidad] ?? [];
-
-      if (!slots.includes(normalizedHora)) {
-        throw new CitaServiceError('INVALID_HOUR', 'La nueva hora no pertenece a la jornada de la modalidad.');
-      }
-
-      const [activeStudents, dailyAppointments, slotAppointments] = await Promise.all([
-        countActiveStudentsByModalidad({ tx, modalidad: citaActual.modalidad }),
-        countDailyAppointments({
-          tx,
-          start: range.start,
-          end: range.end,
-          modalidad: citaActual.modalidad,
-          excludeCitaId: id,
-        }),
-        countSlotAppointments({
-          tx,
-          start: range.start,
-          end: range.end,
-          modalidad: citaActual.modalidad,
-          hora: normalizedHora,
-          excludeCitaId: id,
-        }),
-      ]);
-
-      if (activeStudents <= 0) {
-        throw new CitaServiceError(
-          'NO_ELIGIBLE_STUDENTS',
-          `No hay estudiantes activos habilitados para modalidad ${citaActual.modalidad.toLowerCase()}.`,
-        );
-      }
-
-      const dailyCap = MODALIDAD_DAILY_CAP[citaActual.modalidad] ?? 0;
-      if (dailyAppointments >= dailyCap) {
-        throw new CitaServiceError(
-          'DAILY_CAP_REACHED',
-          `Se alcanzó el tope diario de ${dailyCap} citas para modalidad ${citaActual.modalidad.toLowerCase()}.`,
-        );
-      }
-
-      if (slotAppointments >= activeStudents) {
-        throw new CitaServiceError('SLOT_NOT_AVAILABLE', 'La nueva hora seleccionada no tiene más cupos disponibles.');
-      }
-
-      const selfConflict = await tx.cita.count({
-        where: {
-          id: { not: id },
-          estudianteId: citaActual.estudianteId,
-          fecha: {
-            gte: range.start,
-            lt: range.end,
-          },
-          modalidad: citaActual.modalidad,
-          hora: normalizedHora,
-          estado: 'AGENDADA',
-        },
-      });
-
-      if (selfConflict > 0) {
-        throw new CitaServiceError('SLOT_NOT_AVAILABLE', 'El estudiante asignado ya tiene una cita en ese horario.');
-      }
-
-      let enlaceReunion = citaActual.enlaceReunion;
-      if (citaActual.modalidad === 'VIRTUAL') {
-        const estudiante = await tx.estudiante.findUnique({
-          where: { id: citaActual.estudianteId },
-          select: { nombre: true, correo: true },
-        });
-
-        const eventStart = buildDateTimeFromDayAndHour(range.dayKey, normalizedHora);
-        const eventEnd = new Date(eventStart.getTime() + 60 * 60 * 1000);
-        const jitsi = buildJitsiMeetingDetails({ citaId: citaActual.id, fecha: range.start, hora: normalizedHora });
-        const attendees = [estudiante?.correo, citaActual.usuarioCorreo].filter(
-          (value): value is string => Boolean(value && value.trim()),
-        );
-
-        try {
-          const meetEvent = await googleCalendarService.createMeetEvent({
-            summary: buildMeetSummary(citaActual.modalidad, estudiante?.nombre || 'Usuario'),
-            description: buildCalendarDescription(
-              citaActual.motivo || 'Cita virtual reprogramada - Consultorio Jurídico SOF-IA',
-              jitsi,
-            ),
-            attendeeEmails: attendees,
-            start: eventStart,
-            end: eventEnd,
-          });
-          enlaceReunion = meetEvent.meetLink;
-        } catch (error) {
-          const details = error instanceof Error ? error.message : String(error);
-          throw new CitaServiceError('MEET_LINK_FAILED', `No fue posible regenerar el enlace de Google Meet. ${details}`);
-        }
-      }
-
-      return tx.cita.update({
-        where: { id },
-        data: {
-          fecha: range.start,
-          hora: normalizedHora,
-          motivo: 'Reprogramado: fecha anterior modificada',
-          enlaceReunion,
-        },
-        include: { estudiante: true },
-      });
+    return this.update(id, {
+      fecha: nuevaFecha,
+      hora: nuevaHora,
+      estado: 'AGENDADA',
     });
   },
 
   async getStats() {
-    const total = await prisma.cita.count();
-    const agendadas = await prisma.cita.count({ where: { estado: 'AGENDADA' } });
-    const canceladas = await prisma.cita.count({ where: { estado: 'CANCELADA' } });
-    const completadas = await prisma.cita.count({ where: { estado: 'COMPLETIDA' } });
-
-    const presencial = await prisma.cita.count({ where: { modalidad: 'PRESENCIAL' } });
-    const virtual = await prisma.cita.count({ where: { modalidad: 'VIRTUAL' } });
-
-    const chatbotStats = await fetchChatbotAppointmentStats();
-    const chatbotTotal = Number(chatbotStats.total || 0);
-    const chatbotAgendadas = Number(chatbotStats.agendadas || 0);
-    const chatbotCanceladas = Number(chatbotStats.canceladas || 0);
-    const chatbotPresencial = Number(chatbotStats.presencial || 0);
-    const chatbotVirtual = Number(chatbotStats.virtual || 0);
+    const citas = await this.getAll({ sourceSystem: 'SOFIA' });
+    const total = citas.length;
+    const agendadas = citas.filter((cita) => String(cita.estado).toUpperCase() === 'AGENDADA').length;
+    const canceladas = citas.filter((cita) => String(cita.estado).toUpperCase() === 'CANCELADA').length;
+    const completadas = citas.filter((cita) => String(cita.estado).toUpperCase() === 'COMPLETIDA').length;
+    const presencial = citas.filter((cita) => String(cita.modalidad).toUpperCase() === 'PRESENCIAL').length;
+    const virtual = citas.filter((cita) => String(cita.modalidad).toUpperCase() === 'VIRTUAL').length;
 
     return {
-      total: total + chatbotTotal,
-      agendadas: agendadas + chatbotAgendadas,
-      canceladas: canceladas + chatbotCanceladas,
+      total,
+      agendadas,
+      canceladas,
       completadas,
-      presencial: presencial + chatbotPresencial,
-      virtual: virtual + chatbotVirtual,
+      presencial,
+      virtual,
     };
   },
 
