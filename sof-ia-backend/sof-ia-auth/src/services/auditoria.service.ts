@@ -1,30 +1,19 @@
-import { PrismaClient, TipoAuditoria } from '@prisma/client';
+import { sicopHistoryClient } from '../integrations/sicop/sicop-history.client';
 
-const prisma = new PrismaClient();
+type AuditPayload = {
+  accion: string;
+  entidad: string;
+  entidadId?: string;
+  detalles: string;
+  adminId?: string;
+  adminNombre?: string;
+  ip?: string;
+  userAgent?: string;
+};
 
 export const auditoriaService = {
-  async registrar(data: {
-    accion: TipoAuditoria;
-    entidad: string;
-    entidadId?: string;
-    detalles: string;
-    adminId?: string;
-    adminNombre?: string;
-    ip?: string;
-    userAgent?: string;
-  }) {
-    return await prisma.auditoria.create({
-      data: {
-        accion: data.accion,
-        entidad: data.entidad,
-        entidadId: data.entidadId,
-        detalles: data.detalles,
-        adminId: data.adminId,
-        adminNombre: data.adminNombre,
-        ip: data.ip,
-        userAgent: data.userAgent,
-      },
-    });
+  async registrar(data: AuditPayload) {
+    return sicopHistoryClient.createAuditLog(data as Record<string, unknown>);
   },
 
   async getAll(options?: {
@@ -33,48 +22,24 @@ export const auditoriaService = {
     limit?: number;
     offset?: number;
   }) {
-    const where: any = {};
-    
-    if (options?.entidad) {
-      where.entidad = options.entidad;
-    }
-    
-    if (options?.adminId) {
-      where.adminId = options.adminId;
-    }
-
-    return await prisma.auditoria.findMany({
-      where,
-      orderBy: { creadoEn: 'desc' },
-      take: options?.limit || 50,
-      skip: options?.offset || 0,
-    });
+    return sicopHistoryClient.getAuditLogs(options as Record<string, unknown>);
   },
 
   async getByEntidad(entidad: string, limit?: number, offset?: number) {
-    return await prisma.auditoria.findMany({
-      where: { entidad },
-      orderBy: { creadoEn: 'desc' },
-      take: limit || 50,
-      skip: offset || 0,
-    });
+    return sicopHistoryClient.getAuditLogs({ entidad, limit, offset });
   },
 
   async count(options?: {
     entidad?: string;
     adminId?: string;
   }) {
-    const where: any = {};
-    
-    if (options?.entidad) {
-      where.entidad = options.entidad;
-    }
-    
-    if (options?.adminId) {
-      where.adminId = options.adminId;
-    }
-
-    return await prisma.auditoria.count({ where });
+    const items = await sicopHistoryClient.getAuditLogs({
+      entidad: options?.entidad,
+      adminId: options?.adminId,
+      limit: 1,
+      offset: 0,
+    });
+    return Array.isArray(items) ? items.length : 0;
   },
 };
 

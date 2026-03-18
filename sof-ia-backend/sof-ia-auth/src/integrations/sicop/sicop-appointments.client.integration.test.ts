@@ -32,7 +32,34 @@ describe('sicop appointments client integration (mocked)', () => {
     vi.restoreAllMocks();
   });
 
-  it('loads multiple pages using SICOP pagination headers', async () => {
+  it('loads only first page by default to avoid expensive pagination loops', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { token: createJwtWithExp(600) }))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          200,
+          { appointments: [{ id: 'a1' }] },
+          {
+            'x-pagination-limit': '100',
+            'x-pagination-offset': '0',
+            'x-pagination-has-more': 'true',
+          },
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { appointments: [{ id: 'a2' }] }));
+
+    vi.stubGlobal('fetch', fetchMock);
+    const { sicopAppointmentsClient } = await import('./sicop-appointments.client');
+
+    const data = await sicopAppointmentsClient.getAppointments();
+
+    expect(data).toHaveLength(1);
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/appointments?limit=100&offset=0&sourceSystem=SOFIA');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('loads multiple pages only when fetchAllPages=true', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(200, { token: createJwtWithExp(600) }))
@@ -62,7 +89,7 @@ describe('sicop appointments client integration (mocked)', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { sicopAppointmentsClient } = await import('./sicop-appointments.client');
 
-    const data = await sicopAppointmentsClient.getAppointments();
+    const data = await sicopAppointmentsClient.getAppointments({ fetchAllPages: true });
 
     expect(data).toHaveLength(2);
     expect(String(fetchMock.mock.calls[1][0])).toContain('/appointments?limit=100&offset=0&sourceSystem=SOFIA');
@@ -167,5 +194,42 @@ describe('sicop appointments client integration (mocked)', () => {
       code: 'SICOP_NETWORK_ERROR',
     });
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('reads appointment stats from /appointments/stats', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { token: createJwtWithExp(600) }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: {
+            total: 12,
+            byStatus: {
+              AGENDADA: 5,
+              CANCELADA: 4,
+              COMPLETADA: 3,
+            },
+            byMode: {
+              PRESENCIAL: 7,
+              VIRTUAL: 5,
+            },
+          },
+        }),
+      );
+
+    vi.stubGlobal('fetch', fetchMock);
+    const { sicopAppointmentsClient } = await import('./sicop-appointments.client');
+
+    const stats = await sicopAppointmentsClient.getAppointmentsStats({ sourceSystem: 'SOFIA' });
+
+    expect(stats).toEqual({
+      total: 12,
+      agendadas: 5,
+      canceladas: 4,
+      completadas: 3,
+      presencial: 7,
+      virtual: 5,
+    });
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/appointments/stats?sourceSystem=SOFIA');
   });
 });

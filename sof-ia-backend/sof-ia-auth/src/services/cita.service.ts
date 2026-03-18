@@ -146,6 +146,7 @@ export const citaService = {
         from: filtros?.from,
         to: filtros?.to,
         updatedSince: filtros?.updatedSince,
+        fetchAllPages: false,
       });
 
       return citas
@@ -311,22 +312,14 @@ export const citaService = {
   },
 
   async getStats() {
-    const citas = await this.getAll({ sourceSystem: 'SOFIA' });
-    const total = citas.length;
-    const agendadas = citas.filter((cita) => String(cita.estado).toUpperCase() === 'AGENDADA').length;
-    const canceladas = citas.filter((cita) => String(cita.estado).toUpperCase() === 'CANCELADA').length;
-    const completadas = citas.filter((cita) => String(cita.estado).toUpperCase() === 'COMPLETIDA').length;
-    const presencial = citas.filter((cita) => String(cita.modalidad).toUpperCase() === 'PRESENCIAL').length;
-    const virtual = citas.filter((cita) => String(cita.modalidad).toUpperCase() === 'VIRTUAL').length;
-
-    return {
-      total,
-      agendadas,
-      canceladas,
-      completadas,
-      presencial,
-      virtual,
-    };
+    try {
+      return await sicopAppointmentsClient.getAppointmentsStats({ sourceSystem: 'SOFIA' });
+    } catch (error) {
+      if (error instanceof SicopIntegrationError) {
+        throw mapSicopError(error);
+      }
+      throw error;
+    }
   },
 
   isServiceError(error: unknown): error is CitaServiceError {
