@@ -62,8 +62,6 @@ export const config = {
     retryAttempts: parseNumber(process.env.SICOP_RETRY_ATTEMPTS, 1),
   },
   featureFlags: {
-    authLocalFallbackEnabled: parseBoolean(process.env.AUTH_LOCAL_FALLBACK_ENABLED, false),
-    authLocalTokenAcceptEnabled: parseBoolean(process.env.AUTH_LOCAL_TOKEN_ACCEPT_ENABLED, false),
     moduleSourceMode: {
       stats: parseSourceMode(process.env.STATS_SOURCE_MODE, 'sicop'),
       notifications: parseSourceMode(process.env.NOTIFICATIONS_SOURCE_MODE, 'sicop'),
