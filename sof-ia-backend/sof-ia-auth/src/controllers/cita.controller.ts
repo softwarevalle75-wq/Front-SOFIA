@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { citaService } from '../services/cita.service';
+import { AuthRequest } from '../middlewares/auth.middleware';
 
 type Modalidad = 'PRESENCIAL' | 'VIRTUAL';
 
@@ -60,6 +61,7 @@ function mapServiceErrorToStatus(code: string): number {
     INVALID_DATE: 400,
     INVALID_HOUR: 400,
     INVALID_MODE: 400,
+    INVALID_REQUEST: 400,
     NOT_FOUND: 404,
     SLOT_NOT_AVAILABLE: 409,
     SICOP_UNAUTHORIZED: 401,
@@ -196,6 +198,7 @@ export const citaController = {
         fecha,
         hora,
         modalidad: mode,
+        asunto: body.asunto || 'Cita SOFIA',
         motivo: body.motivo || 'Cita agendada desde chatbot',
         usuarioNombre: body.userName || 'Usuario chatbot',
         usuarioTipoDocumento: body.userDocumentType || 'CC',
@@ -288,9 +291,11 @@ export const citaController = {
     }
   },
 
-  async create(req: Request, res: Response) {
+  async create(req: AuthRequest, res: Response) {
     try {
       const data = req.body || {};
+      const estudianteId = String(data.estudianteId || req.user?.userId || '').trim();
+
       if (!data.fecha || !data.hora || !data.modalidad) {
         return res.status(400).json({
           success: false,
@@ -298,7 +303,17 @@ export const citaController = {
         });
       }
 
-      const cita = await citaService.create(data);
+      if (!estudianteId) {
+        return res.status(400).json({
+          success: false,
+          message: 'No fue posible identificar el estudiante para la cita.',
+        });
+      }
+
+      const cita = await citaService.create({
+        ...data,
+        estudianteId,
+      });
       return res.status(201).json({ success: true, data: cita });
     } catch (error: any) {
       console.error('Error al crear cita:', error);

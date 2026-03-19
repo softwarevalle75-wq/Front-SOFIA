@@ -135,15 +135,21 @@ export function mapSofiaStudentInputToSicopPayload(raw: Record<string, unknown>)
 }
 
 export function mapSofiaCitaToSicopPayload(raw: Record<string, unknown>): Record<string, unknown> {
+  const fechaHora = toStringOrNull(raw.fechaHora || raw.fecha || raw.date);
+  const asunto = toStringOrNull(raw.asunto) || toStringOrNull(raw.motivo) || 'Cita SOFIA';
+
   return {
-    fecha: raw.fecha,
-    date: raw.fecha,
+    fecha: fechaHora,
+    date: fechaHora,
+    fechaHora,
     hora: toStringOrNull(raw.hora),
     time: toStringOrNull(raw.hora),
     modalidad: String(raw.modalidad || 'PRESENCIAL').toUpperCase(),
     mode: String(raw.modalidad || 'PRESENCIAL').toUpperCase(),
     motivo: toStringOrNull(raw.motivo),
     reason: toStringOrNull(raw.motivo),
+    asunto,
+    subject: asunto,
     estado: String(raw.estado || 'AGENDADA').toUpperCase(),
     status: String(raw.estado || 'AGENDADA').toUpperCase(),
     estudianteId: toStringOrNull(raw.estudianteId),

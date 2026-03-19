@@ -95,6 +95,9 @@ function buildDateTimeIso(fecha: Date | string, hora: string): string {
 }
 
 function mapSicopError(error: SicopIntegrationError): CitaServiceError {
+  if (error.statusCode === 400) {
+    return new CitaServiceError('INVALID_REQUEST', error.message || 'La solicitud de cita no cumple el contrato requerido por SICOP.');
+  }
   if (error.statusCode === 401 || error.statusCode === 403) {
     return new CitaServiceError('SICOP_UNAUTHORIZED', 'No autorizado para operar citas en SICOP.');
   }
@@ -214,6 +217,7 @@ export const citaService = {
     fecha: Date | string;
     hora: string;
     modalidad: Modalidad | string;
+    asunto?: string;
     motivo?: string;
     estudianteId?: string;
     usuarioNombre?: string;
@@ -229,9 +233,21 @@ export const citaService = {
       const payload = mapSofiaCitaToSicopPayload({
         ...data,
         fecha: fechaHoraISO,
+        fechaHora: fechaHoraISO,
+        asunto: data.asunto || data.motivo || 'Cita SOFIA',
         hora: normalizeHora(data.hora),
         estado: 'AGENDADA',
       });
+
+      console.info(JSON.stringify({
+        integration: 'sicop',
+        endpoint: '/appointments',
+        action: 'create_payload',
+        sourceSystem: payload.sourceSystem,
+        studentId: payload.studentId,
+        fechaHora: payload.fechaHora,
+        asunto: payload.asunto,
+      }));
 
       const created = await sicopAppointmentsClient.createAppointment(payload);
       return ensureCitaShape(mapSicopAppointmentToSofiaCita(created) as Record<string, any>);
