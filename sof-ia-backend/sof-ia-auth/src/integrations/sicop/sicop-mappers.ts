@@ -30,6 +30,13 @@ function normalizeCitaEstado(value: unknown): 'AGENDADA' | 'CANCELADA' | 'COMPLE
   return 'AGENDADA';
 }
 
+function toSicopAppointmentStatus(value: unknown): 'PENDIENTE' | 'CANCELADA' | 'COMPLETADA' {
+  const raw = String(value || 'AGENDADA').trim().toUpperCase();
+  if (raw === 'CANCELADA' || raw === 'CANCELLED' || raw === 'CANCELED') return 'CANCELADA';
+  if (raw === 'COMPLETADA' || raw === 'COMPLETIDA' || raw === 'COMPLETED' || raw === 'DONE') return 'COMPLETADA';
+  return 'PENDIENTE';
+}
+
 function extractDateAndHour(raw: SicopAppointment): { fecha: string; hora: string } {
   const rawHora = String(
     raw.hora ||
@@ -137,6 +144,7 @@ export function mapSofiaStudentInputToSicopPayload(raw: Record<string, unknown>)
 export function mapSofiaCitaToSicopPayload(raw: Record<string, unknown>): Record<string, unknown> {
   const fechaHora = toStringOrNull(raw.fechaHora || raw.fecha || raw.date);
   const asunto = toStringOrNull(raw.asunto) || toStringOrNull(raw.motivo) || 'Cita SOFIA';
+  const status = toSicopAppointmentStatus(raw.estado || raw.status);
 
   return {
     fecha: fechaHora,
@@ -150,8 +158,8 @@ export function mapSofiaCitaToSicopPayload(raw: Record<string, unknown>): Record
     mode: String(raw.modalidad || 'PRESENCIAL').toUpperCase(),
     motivo: toStringOrNull(raw.motivo),
     reason: toStringOrNull(raw.motivo),
-    estado: String(raw.estado || 'AGENDADA').toUpperCase(),
-    status: String(raw.estado || 'AGENDADA').toUpperCase(),
+    estado: status,
+    status,
     estudianteId: toStringOrNull(raw.estudianteId),
     studentId: toStringOrNull(raw.estudianteId),
     usuarioNombre: toStringOrNull(raw.usuarioNombre),

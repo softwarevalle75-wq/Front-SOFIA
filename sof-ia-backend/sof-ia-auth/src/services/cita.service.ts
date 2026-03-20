@@ -134,6 +134,13 @@ function normalizeEstadoInput(value: unknown): EstadoCita {
   return 'AGENDADA';
 }
 
+function toSicopStatus(value: unknown): 'PENDIENTE' | 'CANCELADA' | 'COMPLETADA' {
+  const normalized = normalizeEstadoInput(value);
+  if (normalized === 'CANCELADA') return 'CANCELADA';
+  if (normalized === 'COMPLETIDA') return 'COMPLETADA';
+  return 'PENDIENTE';
+}
+
 export const citaService = {
   async getAll(filtros?: {
     estudianteId?: string;
@@ -295,7 +302,7 @@ export const citaService = {
 
       if (data.modalidad !== undefined) payload.modalidad = String(data.modalidad).toUpperCase();
       if (data.motivo !== undefined) payload.motivo = data.motivo;
-      if (data.estado !== undefined) payload.estado = normalizeEstadoInput(data.estado);
+      if (data.estado !== undefined) payload.estado = toSicopStatus(data.estado);
       if (data.estudianteId !== undefined) payload.estudianteId = data.estudianteId;
       if (data.usuarioNombre !== undefined) payload.usuarioNombre = data.usuarioNombre;
       if (data.usuarioTipoDocumento !== undefined) payload.usuarioTipoDocumento = data.usuarioTipoDocumento;
