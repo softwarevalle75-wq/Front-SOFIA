@@ -9,9 +9,10 @@ function asSofiaStudent(raw: unknown): SofiaStudent {
 }
 
 async function fetchStudentList(options?: { sourceSystem?: string }): Promise<SofiaStudent[]> {
+  const sourceSystem = options?.sourceSystem || 'SOFIA';
   const users = await sicopUsersClient.getUsers({
     role: 'estudiante',
-    sourceSystem: options?.sourceSystem,
+    sourceSystem,
   });
 
   return users
@@ -41,6 +42,10 @@ export const estudianteService = {
   async getById(id: string) {
     try {
       const raw = await sicopUsersClient.getUserById(id);
+      const sourceSystem = String((raw as any).sourceSystem || '').toUpperCase();
+      if (sourceSystem !== 'SOFIA') {
+        return null;
+      }
       return asSofiaStudent(raw);
     } catch (error) {
       if (error instanceof SicopIntegrationError && error.statusCode === 404) {
