@@ -69,6 +69,11 @@ function resolveDateKey(fecha: Date | string): string {
   if (typeof fecha === 'string') {
     const trimmed = fecha.trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const slashDate = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed);
+    if (slashDate) {
+      const [, day, month, year] = slashDate;
+      return `${year}-${month}-${day}`;
+    }
     const parsed = new Date(trimmed);
     if (Number.isNaN(parsed.getTime())) {
       throw new CitaServiceError('INVALID_DATE', 'La fecha no es válida. Usa formato YYYY-MM-DD.');
@@ -230,12 +235,13 @@ export const citaService = {
   }) {
     try {
       const fechaHoraISO = buildDateTimeIso(data.fecha, data.hora);
+      const normalizedHour = normalizeHora(data.hora);
       const payload = mapSofiaCitaToSicopPayload({
         ...data,
-        fecha: fechaHoraISO,
         fechaHora: fechaHoraISO,
         asunto: data.asunto || data.motivo || 'Cita SOFIA',
-        hora: normalizeHora(data.hora),
+        fecha: fechaHoraISO,
+        hora: normalizedHour,
         estado: 'AGENDADA',
       });
 
@@ -275,10 +281,16 @@ export const citaService = {
     try {
       const payload: Record<string, unknown> = {};
       if (data.fecha !== undefined || data.hora !== undefined) {
-        const fechaBase = data.fecha ?? new Date().toISOString();
-        const horaBase = data.hora ?? '09:00';
-        payload.fecha = buildDateTimeIso(fechaBase, horaBase);
+        const existing = await this.getById(id);
+        if (!existing) {
+          throw new CitaServiceError('NOT_FOUND', 'Cita no encontrada en SICOP.');
+        }
+
+        const fechaBase = data.fecha ?? String(existing.fecha || '');
+        const horaBase = data.hora ?? String(existing.hora || '09:00');
+        payload.fechaHora = buildDateTimeIso(fechaBase, horaBase);
         payload.hora = normalizeHora(horaBase);
+        payload.asunto = String(existing.motivo || 'Cita SOFIA');
       }
 
       if (data.modalidad !== undefined) payload.modalidad = String(data.modalidad).toUpperCase();
