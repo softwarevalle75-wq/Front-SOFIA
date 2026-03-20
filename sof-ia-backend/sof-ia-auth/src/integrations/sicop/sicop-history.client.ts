@@ -14,6 +14,7 @@ function asList(payload: unknown): UnknownRecord[] {
   const root = asRecord(payload);
   if (Array.isArray(root.data)) return root.data as UnknownRecord[];
   if (Array.isArray(root.items)) return root.items as UnknownRecord[];
+  if (Array.isArray(root.logs)) return root.logs as UnknownRecord[];
   return [];
 }
 

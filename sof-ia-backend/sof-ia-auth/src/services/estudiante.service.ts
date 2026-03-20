@@ -8,15 +8,14 @@ function asSofiaStudent(raw: unknown): SofiaStudent {
   return mapSicopUserToSofiaStudent(raw as any) as SofiaStudent;
 }
 
-async function fetchStudentList(): Promise<SofiaStudent[]> {
+async function fetchStudentList(options?: { sourceSystem?: string }): Promise<SofiaStudent[]> {
   const users = await sicopUsersClient.getUsers({
     role: 'estudiante',
-    sourceSystem: 'SOFIA',
+    sourceSystem: options?.sourceSystem,
   });
 
   return users
     .filter((user) => String(user.role || '').toLowerCase() === 'estudiante')
-    .filter((user) => String((user as any).sourceSystem || '').toUpperCase() === 'SOFIA')
     .map((user) => asSofiaStudent(user))
     .sort((a, b) => new Date(String(b.creadoEn || b.createdAt || 0)).getTime() - new Date(String(a.creadoEn || a.createdAt || 0)).getTime());
 }
@@ -59,7 +58,7 @@ export const estudianteService = {
   async create(data: Record<string, unknown>) {
     try {
       const payload = mapSofiaStudentInputToSicopPayload(data);
-      const created = await sicopUsersClient.createUser(payload);
+      const created = await sicopUsersClient.upsertUser(payload);
       return asSofiaStudent(created);
     } catch (error) {
       throw mapStudentServiceError(error);
@@ -131,7 +130,7 @@ export const estudianteService = {
   },
 
   async deleteAll() {
-    const students = await fetchStudentList();
+    const students = await fetchStudentList({ sourceSystem: 'SOFIA' });
     for (const student of students) {
       try {
         await sicopUsersClient.deleteUser(String(student.id));

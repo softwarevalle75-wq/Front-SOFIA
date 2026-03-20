@@ -64,6 +64,15 @@ export class SicopUsersClient {
     return this.extractUser(response.data);
   }
 
+  async upsertUser(payload: Record<string, unknown>): Promise<SicopUser> {
+    const response = await sicopAuthClient.requestWithAuth<SicopUsersResponse | SicopUser>('/auth/users/upsert', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    return this.extractUser(response.data);
+  }
+
   async updateUser(id: string, payload: Record<string, unknown>): Promise<SicopUser> {
     const response = await sicopAuthClient.requestWithAuth<SicopUsersResponse | SicopUser>(`/auth/users/${id}`, {
       method: 'PATCH',

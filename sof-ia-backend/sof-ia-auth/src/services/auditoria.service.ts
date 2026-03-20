@@ -11,9 +11,33 @@ type AuditPayload = {
   userAgent?: string;
 };
 
+function normalizeAction(value: string): string {
+  return String(value || 'REPORTAR').trim().toUpperCase();
+}
+
+function resolveEvent(action: string): 'LOGIN' | 'LOGOUT' | 'FAIL' | 'BLOCKED' {
+  if (action.includes('BLOCK')) return 'BLOCKED';
+  if (action.includes('FALLO') || action.includes('ERROR') || action.includes('FAIL')) return 'FAIL';
+  if (action.includes('LOGOUT')) return 'LOGOUT';
+  if (action.includes('LOGIN')) return 'LOGIN';
+  return 'LOGOUT';
+}
+
 export const auditoriaService = {
   async registrar(data: AuditPayload) {
-    return sicopHistoryClient.createAuditLog(data as Record<string, unknown>);
+    const action = normalizeAction(data.accion);
+    const event = resolveEvent(action);
+    const success = event !== 'FAIL';
+
+    return sicopHistoryClient.createAuditLog({
+      userId: data.adminId,
+      event,
+      action,
+      details: data.detalles,
+      ipAddress: data.ip,
+      userAgent: data.userAgent,
+      success,
+    });
   },
 
   async getAll(options?: {
@@ -33,13 +57,13 @@ export const auditoriaService = {
     entidad?: string;
     adminId?: string;
   }) {
-    const items = await sicopHistoryClient.getAuditLogs({
+    const items = await this.getAll({
       entidad: options?.entidad,
       adminId: options?.adminId,
-      limit: 1,
+      limit: 500,
       offset: 0,
     });
-    return Array.isArray(items) ? items.length : 0;
+    return items.length;
   },
 };
 

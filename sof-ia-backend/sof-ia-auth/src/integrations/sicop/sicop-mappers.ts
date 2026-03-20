@@ -120,17 +120,22 @@ export function mapSicopUserToSofiaStudent(raw: SicopUser): Record<string, unkno
 }
 
 export function mapSofiaStudentInputToSicopPayload(raw: Record<string, unknown>): Record<string, unknown> {
+  const documento = toStringOrNull(raw.documento) || toStringOrNull(raw.document) || `sofia-${Date.now()}`;
   const correo = toStringOrNull(raw.correo);
+  const fallbackEmail = `${String(documento).replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}@sofia.local`;
+
   return {
     name: toStringOrNull(raw.nombre) || 'Estudiante SOFIA',
     fullName: toStringOrNull(raw.nombre) || 'Estudiante SOFIA',
-    email: correo,
+    email: correo || fallbackEmail,
     phone: toStringOrNull(raw.telefono),
     area: toStringOrNull(raw.programa),
     modality: String(raw.modalidad || 'PRESENCIAL').toUpperCase(),
     status: String(raw.estado || 'ACTIVO').toUpperCase(),
     role: 'estudiante',
-    document: toStringOrNull(raw.documento),
+    document: documento,
+    sourceSystem: 'SOFIA',
+    externalRef: String(documento),
     metadata: {
       sourceSystem: 'SOFIA',
       estadoCuenta: toStringOrNull(raw.estadoCuenta),
