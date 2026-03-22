@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { MessageCircle, ExternalLink } from 'lucide-react';
 import Button from '@/components/common/Button';
 
@@ -7,7 +7,10 @@ interface ChatAccessButtonProps {
 }
 
 const ChatAccessButton: React.FC<ChatAccessButtonProps> = ({ className = '' }) => {
-  const publicChatbotUrl = 'https://universitariadecolombia.edu.co/consultorio-juridico';
+  const publicChatbotUrl = useMemo(
+    () => import.meta.env.VITE_PUBLIC_CHATBOT_URL || `${window.location.origin}/chatbot`,
+    [],
+  );
 
   const openExternalLink = (url: string) => {
     window.open(url, '_blank', 'noopener,noreferrer');

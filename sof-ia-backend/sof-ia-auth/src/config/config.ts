@@ -2,9 +2,27 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+type SourceMode = 'prisma' | 'sicop' | 'dual';
+
 function parseNumber(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value || '', 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
+function parseSourceMode(value: string | undefined, fallback: SourceMode): SourceMode {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'prisma' || normalized === 'sicop' || normalized === 'dual') {
+    return normalized;
+  }
+  return fallback;
 }
 
 function requireEnv(name: string): string {
@@ -40,7 +58,24 @@ export const config = {
     gatewayUrl: requireEnv('SICOP_GATEWAY_URL'),
     integrationEmail: requireEnv('SICOP_INTEGRATION_EMAIL'),
     integrationPassword: requireEnv('SICOP_INTEGRATION_PASSWORD'),
-    timeoutMs: parseNumber(process.env.SICOP_TIMEOUT_MS, 15000),
-    retryAttempts: parseNumber(process.env.SICOP_RETRY_ATTEMPTS, 2),
+    timeoutMs: parseNumber(process.env.SICOP_TIMEOUT_MS, 10000),
+    retryAttempts: parseNumber(process.env.SICOP_RETRY_ATTEMPTS, 1),
+  },
+  featureFlags: {
+    moduleSourceMode: {
+      stats: parseSourceMode(process.env.STATS_SOURCE_MODE, 'sicop'),
+      notifications: parseSourceMode(process.env.NOTIFICATIONS_SOURCE_MODE, 'sicop'),
+      history: parseSourceMode(process.env.HISTORY_SOURCE_MODE, 'sicop'),
+      conversations: parseSourceMode(process.env.CONVERSATIONS_SOURCE_MODE, 'sicop'),
+      surveys: parseSourceMode(process.env.SURVEYS_SOURCE_MODE, 'sicop'),
+      webhookConfig: parseSourceMode(process.env.WEBHOOK_CONFIG_SOURCE_MODE, 'prisma'),
+    },
+    writeLocal: {
+      notifications: parseBoolean(process.env.NOTIFICATIONS_WRITE_LOCAL_ENABLED, false),
+      history: parseBoolean(process.env.HISTORY_WRITE_LOCAL_ENABLED, false),
+      conversations: parseBoolean(process.env.CONVERSATIONS_WRITE_LOCAL_ENABLED, false),
+      surveys: parseBoolean(process.env.SURVEYS_WRITE_LOCAL_ENABLED, false),
+      webhookConfig: parseBoolean(process.env.WEBHOOK_CONFIG_WRITE_LOCAL_ENABLED, true),
+    },
   },
 };

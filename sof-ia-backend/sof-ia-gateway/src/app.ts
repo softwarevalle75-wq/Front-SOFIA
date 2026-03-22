@@ -15,10 +15,13 @@ app.get('/health', (req: Request, res: Response) => {
 
 // Función de proxy genérica - recibe la ruta completa
 const proxyRequest = (req: Request, res: Response, targetService: string, targetPath: string) => {
+  const queryIndex = req.originalUrl.indexOf('?');
+  const querySuffix = queryIndex >= 0 ? req.originalUrl.slice(queryIndex) : '';
+
   const options = {
     hostname: targetService,
     port: 3001,
-    path: targetPath,
+    path: `${targetPath}${querySuffix}`,
     method: req.method,
     headers: {
       'Content-Type': 'application/json',

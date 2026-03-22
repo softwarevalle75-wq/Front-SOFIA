@@ -1,29 +1,42 @@
-import { PrismaClient, TipoAuditoria } from '@prisma/client';
+import { sicopHistoryClient } from '../integrations/sicop/sicop-history.client';
 
-const prisma = new PrismaClient();
+type AuditPayload = {
+  accion: string;
+  entidad: string;
+  entidadId?: string;
+  detalles: string;
+  adminId?: string;
+  adminNombre?: string;
+  ip?: string;
+  userAgent?: string;
+};
+
+function normalizeAction(value: string): string {
+  return String(value || 'REPORTAR').trim().toUpperCase();
+}
+
+function resolveEvent(action: string): 'LOGIN' | 'LOGOUT' | 'FAIL' | 'BLOCKED' {
+  if (action.includes('BLOCK')) return 'BLOCKED';
+  if (action.includes('FALLO') || action.includes('ERROR') || action.includes('FAIL')) return 'FAIL';
+  if (action.includes('LOGOUT')) return 'LOGOUT';
+  if (action.includes('LOGIN')) return 'LOGIN';
+  return 'LOGOUT';
+}
 
 export const auditoriaService = {
-  async registrar(data: {
-    accion: TipoAuditoria;
-    entidad: string;
-    entidadId?: string;
-    detalles: string;
-    adminId?: string;
-    adminNombre?: string;
-    ip?: string;
-    userAgent?: string;
-  }) {
-    return await prisma.auditoria.create({
-      data: {
-        accion: data.accion,
-        entidad: data.entidad,
-        entidadId: data.entidadId,
-        detalles: data.detalles,
-        adminId: data.adminId,
-        adminNombre: data.adminNombre,
-        ip: data.ip,
-        userAgent: data.userAgent,
-      },
+  async registrar(data: AuditPayload) {
+    const action = normalizeAction(data.accion);
+    const event = resolveEvent(action);
+    const success = event !== 'FAIL';
+
+    return sicopHistoryClient.createAuditLog({
+      userId: data.adminId,
+      event,
+      action,
+      details: data.detalles,
+      ipAddress: data.ip,
+      userAgent: data.userAgent,
+      success,
     });
   },
 
@@ -33,48 +46,24 @@ export const auditoriaService = {
     limit?: number;
     offset?: number;
   }) {
-    const where: any = {};
-    
-    if (options?.entidad) {
-      where.entidad = options.entidad;
-    }
-    
-    if (options?.adminId) {
-      where.adminId = options.adminId;
-    }
-
-    return await prisma.auditoria.findMany({
-      where,
-      orderBy: { creadoEn: 'desc' },
-      take: options?.limit || 50,
-      skip: options?.offset || 0,
-    });
+    return sicopHistoryClient.getAuditLogs(options as Record<string, unknown>);
   },
 
   async getByEntidad(entidad: string, limit?: number, offset?: number) {
-    return await prisma.auditoria.findMany({
-      where: { entidad },
-      orderBy: { creadoEn: 'desc' },
-      take: limit || 50,
-      skip: offset || 0,
-    });
+    return sicopHistoryClient.getAuditLogs({ entidad, limit, offset });
   },
 
   async count(options?: {
     entidad?: string;
     adminId?: string;
   }) {
-    const where: any = {};
-    
-    if (options?.entidad) {
-      where.entidad = options.entidad;
-    }
-    
-    if (options?.adminId) {
-      where.adminId = options.adminId;
-    }
-
-    return await prisma.auditoria.count({ where });
+    const items = await this.getAll({
+      entidad: options?.entidad,
+      adminId: options?.adminId,
+      limit: 500,
+      offset: 0,
+    });
+    return items.length;
   },
 };
 

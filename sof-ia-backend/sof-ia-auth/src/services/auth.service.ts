@@ -1,12 +1,8 @@
 import { ChangePasswordDto } from '../dto/change-password.dto';
 import { LoginDto } from '../dto/login.dto';
-import prisma from '../config/prisma';
-import { comparePassword, hashPassword, validatePasswordPolicy } from '../utils/password.utils';
-import { generateSessionToken, generateToken, verifyToken } from '../utils/jwt.utils';
 import sicopAuthClient from '../integrations/sicop/sicop-auth.client';
 import { mapSicopAuthUserToSofiaAuthUser } from '../integrations/sicop/sicop-mappers';
 import { SicopIntegrationError } from '../integrations/sicop/sicop.types';
-import { EstadoUsuario, Rol } from '@prisma/client';
 
 export interface AuthResult {
   success: boolean;
@@ -36,196 +32,6 @@ function normalizeEmail(correo: string): string {
   return String(correo || '').trim().toLowerCase();
 }
 
-function isLocalToken(token: string): boolean {
-  const payload = verifyToken(token);
-  return Boolean(payload?.sessionId);
-}
-
-function mapLocalUserToAuthUser(usuario: {
-  id: string;
-  nombreCompleto: string;
-  correo: string;
-  rol: string;
-  primerIngreso: boolean;
-}): AuthResult['user'] {
-  return {
-    id: usuario.id,
-    nombreCompleto: usuario.nombreCompleto,
-    correo: usuario.correo,
-    rol: usuario.rol,
-    primerIngreso: usuario.primerIngreso,
-  };
-}
-
-async function loginLocal(data: LoginDto): Promise<AuthResult> {
-  const correo = normalizeEmail(data.correo);
-
-  const usuario = await prisma.usuario.findFirst({
-    where: {
-      correo: {
-        equals: correo,
-        mode: 'insensitive',
-      },
-    },
-  });
-
-  if (!usuario) {
-    return {
-      success: false,
-      message: 'Credenciales inválidas',
-    };
-  }
-
-  if (usuario.estado !== EstadoUsuario.ACTIVO || usuario.rol !== Rol.ADMIN_CONSULTORIO) {
-    return {
-      success: false,
-      message: 'Credenciales inválidas',
-    };
-  }
-
-  const passwordValida = await comparePassword(data.password, usuario.passwordHash);
-  if (!passwordValida) {
-    return {
-      success: false,
-      message: 'Credenciales inválidas',
-    };
-  }
-
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-  const sesion = await prisma.sesion.create({
-    data: {
-      usuarioId: usuario.id,
-      token: generateSessionToken(),
-      expiresAt,
-    },
-  });
-
-  const token = generateToken({
-    userId: usuario.id,
-    email: usuario.correo,
-    role: usuario.rol,
-    sessionId: sesion.id,
-  });
-
-  await prisma.sesion.update({
-    where: { id: sesion.id },
-    data: { token },
-  });
-
-  return {
-    success: true,
-    message: 'Login exitoso',
-    requiresPasswordChange: usuario.primerIngreso,
-    token,
-    user: mapLocalUserToAuthUser(usuario),
-  };
-}
-
-async function meLocal(token: string): Promise<AuthResult> {
-  const payload = verifyToken(token);
-  if (!payload?.sessionId) {
-    return {
-      success: false,
-      message: 'Token inválido o expirado',
-    };
-  }
-
-  const sesion = await prisma.sesion.findFirst({
-    where: {
-      id: payload.sessionId,
-      token,
-      activa: true,
-      expiresAt: { gt: new Date() },
-    },
-    include: {
-      usuario: true,
-    },
-  });
-
-  if (!sesion) {
-    return {
-      success: false,
-      message: 'Sesión inválida o expirada',
-    };
-  }
-
-  await prisma.sesion.update({
-    where: { id: sesion.id },
-    data: { ultimoAcceso: new Date() },
-  });
-
-  return {
-    success: true,
-    message: 'Sesión válida',
-    user: mapLocalUserToAuthUser(sesion.usuario),
-  };
-}
-
-async function changePasswordLocal(token: string, data: ChangePasswordDto): Promise<AuthResult> {
-  const payload = verifyToken(token);
-  if (!payload?.sessionId || !payload?.userId) {
-    return {
-      success: false,
-      message: 'Token inválido o expirado',
-    };
-  }
-
-  const usuario = await prisma.usuario.findUnique({
-    where: { id: payload.userId },
-  });
-
-  if (!usuario) {
-    return {
-      success: false,
-      message: 'Usuario no encontrado',
-    };
-  }
-
-  const passwordValida = await comparePassword(data.passwordActual, usuario.passwordHash);
-  if (!passwordValida) {
-    return {
-      success: false,
-      message: 'La contraseña actual es incorrecta',
-    };
-  }
-
-  const validacion = validatePasswordPolicy(data.nuevaPassword);
-  if (!validacion.valid) {
-    return {
-      success: false,
-      message: validacion.errors.join('. '),
-    };
-  }
-
-  const nuevoHash = await hashPassword(data.nuevaPassword);
-  await prisma.usuario.update({
-    where: { id: usuario.id },
-    data: {
-      passwordHash: nuevoHash,
-      primerIngreso: false,
-    },
-  });
-
-  return {
-    success: true,
-    message: 'Contraseña cambiada exitosamente',
-  };
-}
-
-async function logoutLocal(token: string): Promise<void> {
-  const sesion = await prisma.sesion.findFirst({
-    where: { token, activa: true },
-  });
-
-  if (!sesion) return;
-
-  await prisma.sesion.update({
-    where: { id: sesion.id },
-    data: { activa: false },
-  });
-}
-
 export const authService = {
   async login(data: LoginDto): Promise<AuthResult> {
     const correo = normalizeEmail(data.correo);
@@ -251,20 +57,10 @@ export const authService = {
       };
     } catch (error) {
       if (error instanceof SicopIntegrationError) {
-        const localResult = await loginLocal(data);
-        if (localResult.success) {
-          return localResult;
-        }
-
         return {
           success: false,
           message: buildAuthErrorMessage(error),
         };
-      }
-
-      const localResult = await loginLocal(data);
-      if (localResult.success) {
-        return localResult;
       }
 
       return {
@@ -275,10 +71,6 @@ export const authService = {
   },
 
   async me(token: string): Promise<AuthResult> {
-    if (isLocalToken(token)) {
-      return meLocal(token);
-    }
-
     try {
       const rawUser = await sicopAuthClient.getMe(token);
       const user = mapSicopAuthUserToSofiaAuthUser(rawUser);
@@ -296,10 +88,6 @@ export const authService = {
         };
       }
 
-      if (isLocalToken(token)) {
-        return meLocal(token);
-      }
-
       return {
         success: false,
         message: 'No fue posible validar la sesión con SICOP',
@@ -308,10 +96,6 @@ export const authService = {
   },
 
   async changePassword(token: string, data: ChangePasswordDto): Promise<AuthResult> {
-    if (isLocalToken(token)) {
-      return changePasswordLocal(token, data);
-    }
-
     try {
       await sicopAuthClient.requestWithUserToken(token, '/auth/change-password', {
         method: 'POST',
@@ -349,14 +133,6 @@ export const authService = {
   },
 
   async logout(token: string): Promise<AuthResult> {
-    if (isLocalToken(token)) {
-      await logoutLocal(token);
-      return {
-        success: true,
-        message: 'Sesión cerrada exitosamente',
-      };
-    }
-
     try {
       await sicopAuthClient.requestWithUserToken(token, '/auth/logout', {
         method: 'POST',
@@ -364,8 +140,6 @@ export const authService = {
     } catch {
       // El logout remoto no debe bloquear cierre de sesión local del frontend.
     }
-
-    await logoutLocal(token);
 
     return {
       success: true,

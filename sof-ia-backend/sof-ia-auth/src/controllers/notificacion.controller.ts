@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import notificationService from '../services/notification.service';
-
-const prisma = new PrismaClient();
+import { sicopNotificationsClient } from '../integrations/sicop/sicop-notifications.client';
+import { SicopIntegrationError } from '../integrations/sicop/sicop.types';
+import { config } from '../config/config';
 
 function toDateFromWeekdayAndHour(day?: string, hour?: number, minute?: number): Date {
   const mapping: Record<string, number> = {
@@ -60,83 +60,72 @@ function buildChatbotEventHtml(params: {
   `;
 }
 
+function mapSicopError(error: unknown): { status: number; message: string } {
+  if (error instanceof SicopIntegrationError) {
+    if (error.statusCode === 401 || error.statusCode === 403) return { status: 401, message: 'No autorizado' };
+    return { status: 502, message: 'No fue posible consultar notificaciones en SICOP' };
+  }
+  return { status: 500, message: 'Error al procesar notificaciones' };
+}
+
+function mapPagination(page: number, pageSize: number, pagination?: Record<string, unknown>, listLength?: number) {
+  const total = Number(pagination?.total ?? listLength ?? 0);
+  return {
+    page,
+    pageSize,
+    total,
+    totalPages: pageSize > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1,
+  };
+}
+
 export const notificacionController = {
   async getAll(req: Request, res: Response) {
     try {
-      const { page = 1, pageSize = 20 } = req.query;
-      const skip = (Number(page) - 1) * Number(pageSize);
-      
-      const [notificaciones, total] = await Promise.all([
-        prisma.notificacion.findMany({
-          orderBy: { createdAt: 'desc' },
-          skip,
-          take: Number(pageSize)
-        }),
-        prisma.notificacion.count()
-      ]);
-
-      res.json({
+      const page = Number(req.query.page || 1);
+      const pageSize = Number(req.query.pageSize || 20);
+      const result = await sicopNotificationsClient.list(req.query as Record<string, unknown>);
+      return res.json({
         success: true,
-        data: notificaciones,
-        pagination: {
-          page: Number(page),
-          pageSize: Number(pageSize),
-          total,
-          totalPages: Math.ceil(total / Number(pageSize))
-        }
+        data: result.data,
+        pagination: mapPagination(page, pageSize, result.pagination, result.data.length),
       });
     } catch (error) {
-      console.error('Error getting notificaciones:', error);
-      res.status(500).json({ success: false, message: 'Error al obtener notificaciones' });
+      const mapped = mapSicopError(error);
+      return res.status(mapped.status).json({ success: false, message: mapped.message });
     }
   },
 
   async getNoLeidas(req: Request, res: Response) {
     try {
-      const notificaciones = await prisma.notificacion.findMany({
-        where: { leida: false },
-        orderBy: { createdAt: 'desc' },
-        take: 10
+      const result = await sicopNotificationsClient.list({
+        ...(req.query as Record<string, unknown>),
+        leida: false,
+        pageSize: req.query.pageSize || 10,
       });
-
-      res.json({ success: true, data: notificaciones });
+      return res.json({ success: true, data: result.data });
     } catch (error) {
-      console.error('Error getting no leidas:', error);
-      res.status(500).json({ success: false, message: 'Error al obtener notificaciones' });
+      const mapped = mapSicopError(error);
+      return res.status(mapped.status).json({ success: false, message: mapped.message });
     }
   },
 
   async getCount(req: Request, res: Response) {
     try {
-      const count = await prisma.notificacion.count({
-        where: { leida: false }
-      });
-
-      res.json({ success: true, data: { count } });
+      const count = await sicopNotificationsClient.countUnread();
+      return res.json({ success: true, data: { count } });
     } catch (error) {
-      console.error('Error getting count:', error);
-      res.status(500).json({ success: false, message: 'Error al obtener conteo' });
+      const mapped = mapSicopError(error);
+      return res.status(mapped.status).json({ success: false, message: mapped.message });
     }
   },
 
   async create(req: Request, res: Response) {
     try {
-      const { tipo, titulo, mensaje, prioridad, estudianteId } = req.body;
-      
-      const notificacion = await prisma.notificacion.create({
-        data: {
-          tipo,
-          titulo,
-          mensaje,
-          prioridad: prioridad || 'medium',
-          estudianteId
-        }
-      });
-
-      res.status(201).json({ success: true, data: notificacion });
+      const data = await sicopNotificationsClient.create(req.body as Record<string, unknown>);
+      return res.status(201).json({ success: true, data: data.data ?? data });
     } catch (error) {
-      console.error('Error creating notificacion:', error);
-      res.status(500).json({ success: false, message: 'Error al crear notificación' });
+      const mapped = mapSicopError(error);
+      return res.status(mapped.status).json({ success: false, message: mapped.message });
     }
   },
 
@@ -169,30 +158,25 @@ export const notificacionController = {
       };
 
       if (!titulo || !mensaje) {
-        return res.status(400).json({
-          success: false,
-          message: 'titulo y mensaje son obligatorios',
-        });
+        return res.status(400).json({ success: false, message: 'titulo y mensaje son obligatorios' });
       }
 
-      const notificacion = await prisma.notificacion.create({
-        data: {
-          tipo: 'cita',
-          titulo,
-          mensaje,
-          prioridad,
-        },
+      const notificacion = await sicopNotificationsClient.create({
+        tipo: 'cita',
+        titulo,
+        mensaje,
+        prioridad,
+        tenantId,
+        metadata: { tipoEvento, appointment },
       });
 
-      const admin = await prisma.usuario.findFirst({
-        where: { rol: 'ADMIN_CONSULTORIO' },
-        select: { correo: true },
-      });
+      const adminCorreo = process.env.ADMIN_NOTIFICATION_EMAILS?.split(',')[0]?.trim()
+        || config.sicop.integrationEmail;
 
       try {
-        if (admin?.correo && !appointment?.userEmail) {
+        if (adminCorreo && !appointment?.userEmail) {
           await notificationService.enviarCorreo({
-            to: admin.correo,
+            to: adminCorreo,
             subject: `🔔 ${titulo}`,
             html: buildChatbotEventHtml({ titulo, mensaje, prioridad, tenantId }),
           });
@@ -228,7 +212,7 @@ export const notificacionController = {
               correo: appointment.userEmail,
               telefono: appointment.userPhone || '',
             },
-            adminCorreo: admin?.correo || '',
+            adminCorreo,
           };
 
           if (tipoEvento === 'cancelacion') {
@@ -247,53 +231,42 @@ export const notificacionController = {
         console.error('Error enviando correos de evento chatbot:', mailError);
       }
 
-      res.status(201).json({ success: true, data: notificacion });
+      return res.status(201).json({ success: true, data: notificacion.data ?? notificacion });
     } catch (error) {
-      console.error('Error creating chatbot appointment event notification:', error);
-      res.status(500).json({ success: false, message: 'Error al crear notificación del chatbot' });
+      const mapped = mapSicopError(error);
+      return res.status(mapped.status).json({ success: false, message: mapped.message });
     }
   },
 
   async marcarLeida(req: Request, res: Response) {
     try {
-      const { id } = req.params;
-      
-      const notificacion = await prisma.notificacion.update({
-        where: { id },
-        data: { leida: true }
-      });
-
-      res.json({ success: true, data: notificacion });
+      const data = await sicopNotificationsClient.markRead(req.params.id);
+      return res.json({ success: true, data: data.data ?? data });
     } catch (error) {
-      console.error('Error marking as read:', error);
-      res.status(500).json({ success: false, message: 'Error al marcar notificación como leída' });
+      const mapped = mapSicopError(error);
+      return res.status(mapped.status).json({ success: false, message: mapped.message });
     }
   },
 
   async marcarTodasLeidas(req: Request, res: Response) {
     try {
-      await prisma.notificacion.updateMany({
-        where: { leida: false },
-        data: { leida: true }
-      });
-
-      res.json({ success: true, message: 'Todas las notificaciones marcadas como leídas' });
+      await sicopNotificationsClient.markAllRead();
+      return res.json({ success: true, message: 'Todas las notificaciones marcadas como leídas' });
     } catch (error) {
-      console.error('Error marking all as read:', error);
-      res.status(500).json({ success: false, message: 'Error al marcar notificaciones' });
+      const mapped = mapSicopError(error);
+      return res.status(mapped.status).json({ success: false, message: mapped.message });
     }
   },
 
   async delete(req: Request, res: Response) {
     try {
-      const { id } = req.params;
-      
-      await prisma.notificacion.delete({ where: { id } });
-
-      res.json({ success: true, message: 'Notificación eliminada' });
+      await sicopNotificationsClient.delete(req.params.id);
+      return res.json({ success: true, message: 'Notificación eliminada' });
     } catch (error) {
-      console.error('Error deleting notificacion:', error);
-      res.status(500).json({ success: false, message: 'Error al eliminar notificación' });
+      const mapped = mapSicopError(error);
+      return res.status(mapped.status).json({ success: false, message: mapped.message });
     }
-  }
+  },
 };
+
+export default notificacionController;

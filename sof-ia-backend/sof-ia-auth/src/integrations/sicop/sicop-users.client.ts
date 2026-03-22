@@ -38,6 +38,9 @@ export class SicopUsersClient {
     const query = new URLSearchParams();
     if (filters?.role) query.set('role', String(filters.role));
     if (filters?.sourceSystem) query.set('sourceSystem', String(filters.sourceSystem));
+    if (filters?.sourceSystem && String(filters.sourceSystem).toUpperCase() === 'SOFIA') {
+      query.set('scope', 'sofia');
+    }
     const path = query.toString().length > 0 ? `/auth/users?${query.toString()}` : '/auth/users';
 
     const response = await sicopAuthClient.requestWithAuth<SicopUsersResponse | SicopUser[]>(path, {
@@ -64,6 +67,15 @@ export class SicopUsersClient {
     return this.extractUser(response.data);
   }
 
+  async upsertUser(payload: Record<string, unknown>): Promise<SicopUser> {
+    const response = await sicopAuthClient.requestWithAuth<SicopUsersResponse | SicopUser>('/auth/users/upsert', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    return this.extractUser(response.data);
+  }
+
   async updateUser(id: string, payload: Record<string, unknown>): Promise<SicopUser> {
     const response = await sicopAuthClient.requestWithAuth<SicopUsersResponse | SicopUser>(`/auth/users/${id}`, {
       method: 'PATCH',
@@ -74,7 +86,7 @@ export class SicopUsersClient {
   }
 
   async deleteUser(id: string): Promise<void> {
-    await sicopAuthClient.requestWithAuth<unknown>(`/auth/users/${id}`, {
+    await sicopAuthClient.requestWithAuth<unknown>(`/auth/users/${id}?scope=sofia`, {
       method: 'DELETE',
     });
   }

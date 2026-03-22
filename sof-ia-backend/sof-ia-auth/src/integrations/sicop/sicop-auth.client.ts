@@ -177,6 +177,7 @@ export class SicopAuthClient {
           body: JSON.stringify({
             email: config.sicop.integrationEmail,
             password: config.sicop.integrationPassword,
+            scope: 'sicop',
           }),
         },
         retryAttempts: config.sicop.retryAttempts,
@@ -246,6 +247,7 @@ export class SicopAuthClient {
       body: JSON.stringify({
         email: correo,
         password,
+        scope: 'sofia',
       }),
     });
   }

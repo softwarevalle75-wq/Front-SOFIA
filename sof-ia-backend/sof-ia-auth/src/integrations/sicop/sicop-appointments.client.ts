@@ -2,11 +2,13 @@ import sicopAuthClient from './sicop-auth.client';
 import {
   SicopAppointment,
   SicopAppointmentFilters,
+  SicopAppointmentsStats,
   SicopAppointmentsResponse,
   SicopIntegrationError,
 } from './sicop.types';
 
 const PAGE_LIMIT = 100;
+const MAX_PAGES = 3;
 
 function asBooleanHeader(value: string | undefined): boolean {
   return String(value || '').toLowerCase() === 'true';
@@ -65,6 +67,76 @@ function buildQueryParams(filters: SicopAppointmentFilters, offset: number): URL
   if (updatedSince) params.set('updatedSince', updatedSince);
 
   return params;
+}
+
+function asRecord(payload: unknown): Record<string, unknown> {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return payload as Record<string, unknown>;
+  }
+  return {};
+}
+
+function toNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  return null;
+}
+
+function pickNumber(source: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = toNumber(source[key]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function pickNestedNumber(source: Record<string, unknown>, nestedKey: string, keys: string[]): number | null {
+  const nested = asRecord(source[nestedKey]);
+  return pickNumber(nested, keys);
+}
+
+function normalizeStatsPayload(payload: unknown): SicopAppointmentsStats {
+  const root = asRecord(payload);
+  const data = asRecord(root.data);
+  const source = Object.keys(data).length > 0 ? data : root;
+
+  const agendadas =
+    pickNumber(source, ['agendadas', 'scheduled', 'scheduledCount'])
+    ?? pickNestedNumber(source, 'byStatus', ['AGENDADA'])
+    ?? 0;
+
+  const canceladas =
+    pickNumber(source, ['canceladas', 'canceled', 'cancelled', 'cancelledCount'])
+    ?? pickNestedNumber(source, 'byStatus', ['CANCELADA'])
+    ?? 0;
+
+  const completadas =
+    pickNumber(source, ['completadas', 'completed', 'completedCount'])
+    ?? pickNestedNumber(source, 'byStatus', ['COMPLETADA', 'COMPLETIDA'])
+    ?? 0;
+
+  const presencial =
+    pickNumber(source, ['presencial', 'inPerson', 'in_person'])
+    ?? pickNestedNumber(source, 'byMode', ['PRESENCIAL'])
+    ?? 0;
+
+  const virtual =
+    pickNumber(source, ['virtual', 'online'])
+    ?? pickNestedNumber(source, 'byMode', ['VIRTUAL'])
+    ?? 0;
+
+  const total =
+    pickNumber(source, ['total', 'totalAppointments', 'totalCitas', 'count'])
+    ?? (agendadas + canceladas + completadas);
+
+  return {
+    total,
+    agendadas,
+    canceladas,
+    completadas,
+    presencial,
+    virtual,
+  };
 }
 
 export class SicopAppointmentsClient {
@@ -128,17 +200,38 @@ export class SicopAppointmentsClient {
     const allAppointments: SicopAppointment[] = [];
     const pageSize = filters.limit || PAGE_LIMIT;
     let offset = filters.offset || 0;
+    const fetchAllPages = filters.fetchAllPages === true;
+    let pagesFetched = 0;
 
     while (true) {
       const page = await this.fetchPage({ ...filters, limit: pageSize }, offset);
       allAppointments.push(...page.appointments);
-      if (!page.hasMore) {
+      pagesFetched += 1;
+
+      if (!fetchAllPages || !page.hasMore || pagesFetched >= MAX_PAGES) {
         break;
       }
+
       offset = page.nextOffset;
     }
 
     return allAppointments;
+  }
+
+  async getAppointmentsStats(filters: Pick<SicopAppointmentFilters, 'sourceSystem' | 'origen' | 'from' | 'to'> = {}): Promise<SicopAppointmentsStats> {
+    const params = new URLSearchParams();
+    params.set('sourceSystem', mapOrigenToSourceSystem(filters.sourceSystem || filters.origen));
+
+    const from = normalizeDate(filters.from);
+    const to = normalizeDate(filters.to);
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+
+    const response = await sicopAuthClient.requestWithAuth<Record<string, unknown>>(`/appointments/stats?${params.toString()}`, {
+      method: 'GET',
+    });
+
+    return normalizeStatsPayload(response.data);
   }
 
   async createAppointment(payload: Record<string, unknown>): Promise<SicopAppointment> {

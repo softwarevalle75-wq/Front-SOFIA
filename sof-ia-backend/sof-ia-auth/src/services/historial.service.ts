@@ -1,104 +1,84 @@
-import { PrismaClient } from '@prisma/client';
+import { sicopHistoryClient } from '../integrations/sicop/sicop-history.client';
 
-const prisma = new PrismaClient();
+function toHistorialRow(raw: Record<string, unknown>): Record<string, unknown> {
+  const event = String(raw.event || '').toUpperCase();
+  const action = String(raw.action || '').toUpperCase();
+  const createdAt = String(raw.createdAt || raw.creadoEn || new Date().toISOString());
+  const email = String(raw.email || '').trim();
+  const userId = String(raw.userId || '').trim();
+
+  const isLoginEvent = event === 'LOGIN' || event === 'FAIL' || action.includes('LOGIN');
+  const entidadFromAction = action.includes('ESTUD') || action.includes('IMPORT') ? 'estudiante'
+    : action.includes('CITA') || action.includes('AGENDAR') || action.includes('CANCELAR') || action.includes('REPROGRAM') ? 'cita'
+    : 'sistema';
+  const accion = isLoginEvent
+    ? (event === 'FAIL' ? 'LOGIN_FALLO' : 'LOGIN_EXITO')
+    : (action || 'REPORTAR');
+
+  return {
+    id: String(raw.id || `${userId || email || 'log'}-${createdAt}`),
+    tipo: isLoginEvent ? 'login' : 'auditoria',
+    accion,
+    entidad: isLoginEvent ? 'login' : entidadFromAction,
+    entidadId: raw.caseId ? String(raw.caseId) : undefined,
+    detalles: String(raw.details || raw.message || action || event || 'Acción registrada'),
+    adminId: userId || undefined,
+    adminNombre: email || undefined,
+    ip: raw.ipAddress ? String(raw.ipAddress) : undefined,
+    userAgent: raw.userAgent ? String(raw.userAgent) : undefined,
+    exitoso: raw.success !== undefined ? Boolean(raw.success) : event !== 'FAIL',
+    correo: email || undefined,
+    motivoFallo: event === 'FAIL' ? String(raw.details || 'Error de autenticación') : undefined,
+    creadoEn: createdAt,
+  };
+}
 
 export const historialService = {
   async getHistorialCompleto(options?: {
     limit?: number;
     offset?: number;
-    tipo?: string; // 'estudiante' | 'cita' | 'login' | 'todos'
+    tipo?: string;
   }) {
-    const limit = options?.limit || 2000;
-    const offset = options?.offset || 0;
-    const tipo = options?.tipo;
-
-    // Obtener auditorías
-    const whereAuditoria: any = {};
-    if (tipo && tipo !== 'login' && tipo !== 'todos') {
-      whereAuditoria.entidad = tipo;
-    }
-
-    const auditorias = await prisma.auditoria.findMany({
-      where: whereAuditoria,
-      orderBy: { creadoEn: 'desc' },
-      take: limit,
-      skip: offset,
+    const logs = await sicopHistoryClient.getAuditLogs({
+      limit: options?.limit ?? 500,
+      offset: options?.offset ?? 0,
+      event: options?.tipo === 'login' ? 'LOGIN' : undefined,
     });
 
-    // Obtener intentos de login
-    let intentosLogin: any[] = [];
-    if (!tipo || tipo === 'login' || tipo === 'todos') {
-      intentosLogin = await prisma.intentoLogin.findMany({
-        orderBy: { creadoEn: 'desc' },
-        take: limit,
-        skip: offset,
-      });
+    const mapped = logs
+      .map((item) => toHistorialRow(item as Record<string, unknown>))
+      .sort((a, b) => new Date(String(b.creadoEn || 0)).getTime() - new Date(String(a.creadoEn || 0)).getTime());
+
+    if (options?.tipo && options.tipo !== 'todos') {
+      if (options.tipo === 'login') {
+        return mapped.filter((item) => item.entidad === 'login');
+      }
+      return mapped.filter((item) => String(item.entidad || '').toLowerCase() === String(options.tipo || '').toLowerCase());
     }
 
-    // Combinar y ordenar por fecha
-    const historial = [
-      ...auditorias.map(a => ({
-        id: a.id,
-        tipo: 'auditoria',
-        accion: a.accion,
-        entidad: a.entidad,
-        entidadId: a.entidadId,
-        detalles: a.detalles,
-        adminId: a.adminId,
-        adminNombre: a.adminNombre,
-        ip: a.ip,
-        userAgent: a.userAgent,
-        exitoso: null,
-        correo: null,
-        motivoFallo: null,
-        creadoEn: a.creadoEn,
-      })),
-      ...intentosLogin.map(i => ({
-        id: i.id,
-        tipo: 'login',
-        accion: i.exitoso ? 'LOGIN_EXITO' : 'LOGIN_FALLO',
-        entidad: 'login',
-        detalles: i.exitoso 
-          ? `Login exitoso desde ${i.ip || 'IP desconocida'}` 
-          : `Login fallido. Motivo: ${i.motivoFallo || 'Credenciales incorrectas'}`,
-        adminId: i.usuarioId,
-        adminNombre: null,
-        ip: i.ip,
-        userAgent: i.userAgent,
-        exitoso: i.exitoso,
-        correo: i.correo,
-        motivoFallo: i.motivoFallo,
-        creadoEn: i.creadoEn,
-      })),
-    ].sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime());
-
-    // Limitar resultado final
-    return historial.slice(0, limit);
+    return mapped;
   },
 
   async getEstadisticas() {
-    const totalAuditorias = await prisma.auditoria.count();
-    const totalLogins = await prisma.intentoLogin.count();
-    const loginsExitosos = await prisma.intentoLogin.count({ where: { exitoso: true } });
-    const loginsFallidos = await prisma.intentoLogin.count({ where: { exitoso: false } });
+    const logs = await sicopHistoryClient.getAuditLogs({ limit: 500, offset: 0 });
+    const mapped = logs.map((item) => toHistorialRow(item as Record<string, unknown>));
 
-    // Citas del mes actual
     const inicioMes = new Date();
     inicioMes.setDate(1);
     inicioMes.setHours(0, 0, 0, 0);
 
-    const citasMes = await prisma.cita.count({
-      where: {
-        creadoEn: { gte: inicioMes },
-      },
-    });
-
-    // Estudiantes del mes
-    const estudiantesMes = await prisma.estudiante.count({
-      where: {
-        creadoEn: { gte: inicioMes },
-      },
-    });
+    const totalLogins = mapped.filter((item) => item.entidad === 'login').length;
+    const loginsExitosos = mapped.filter((item) => item.accion === 'LOGIN_EXITO').length;
+    const loginsFallidos = mapped.filter((item) => item.accion === 'LOGIN_FALLO').length;
+    const totalAuditorias = mapped.filter((item) => item.entidad !== 'login').length;
+    const citasMes = mapped.filter((item) => {
+      const createdAt = new Date(String(item.creadoEn || 0));
+      return createdAt >= inicioMes && String(item.entidad || '').toLowerCase() === 'cita';
+    }).length;
+    const estudiantesMes = mapped.filter((item) => {
+      const createdAt = new Date(String(item.creadoEn || 0));
+      return createdAt >= inicioMes && String(item.entidad || '').toLowerCase() === 'estudiante';
+    }).length;
 
     return {
       totalAuditorias,

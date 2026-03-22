@@ -69,6 +69,11 @@ function resolveDateKey(fecha: Date | string): string {
   if (typeof fecha === 'string') {
     const trimmed = fecha.trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const slashDate = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed);
+    if (slashDate) {
+      const [, day, month, year] = slashDate;
+      return `${year}-${month}-${day}`;
+    }
     const parsed = new Date(trimmed);
     if (Number.isNaN(parsed.getTime())) {
       throw new CitaServiceError('INVALID_DATE', 'La fecha no es válida. Usa formato YYYY-MM-DD.');
@@ -95,6 +100,9 @@ function buildDateTimeIso(fecha: Date | string, hora: string): string {
 }
 
 function mapSicopError(error: SicopIntegrationError): CitaServiceError {
+  if (error.statusCode === 400) {
+    return new CitaServiceError('INVALID_REQUEST', error.message || 'La solicitud de cita no cumple el contrato requerido por SICOP.');
+  }
   if (error.statusCode === 401 || error.statusCode === 403) {
     return new CitaServiceError('SICOP_UNAUTHORIZED', 'No autorizado para operar citas en SICOP.');
   }
@@ -126,6 +134,13 @@ function normalizeEstadoInput(value: unknown): EstadoCita {
   return 'AGENDADA';
 }
 
+function toSicopStatus(value: unknown): 'PENDIENTE' | 'CANCELADA' | 'COMPLETADA' {
+  const normalized = normalizeEstadoInput(value);
+  if (normalized === 'CANCELADA') return 'CANCELADA';
+  if (normalized === 'COMPLETIDA') return 'COMPLETADA';
+  return 'PENDIENTE';
+}
+
 export const citaService = {
   async getAll(filtros?: {
     estudianteId?: string;
@@ -146,6 +161,7 @@ export const citaService = {
         from: filtros?.from,
         to: filtros?.to,
         updatedSince: filtros?.updatedSince,
+        fetchAllPages: false,
       });
 
       return citas
@@ -213,6 +229,7 @@ export const citaService = {
     fecha: Date | string;
     hora: string;
     modalidad: Modalidad | string;
+    asunto?: string;
     motivo?: string;
     estudianteId?: string;
     usuarioNombre?: string;
@@ -225,12 +242,25 @@ export const citaService = {
   }) {
     try {
       const fechaHoraISO = buildDateTimeIso(data.fecha, data.hora);
+      const normalizedHour = normalizeHora(data.hora);
       const payload = mapSofiaCitaToSicopPayload({
         ...data,
+        fechaHora: fechaHoraISO,
+        asunto: data.asunto || data.motivo || 'Cita SOFIA',
         fecha: fechaHoraISO,
-        hora: normalizeHora(data.hora),
+        hora: normalizedHour,
         estado: 'AGENDADA',
       });
+
+      console.info(JSON.stringify({
+        integration: 'sicop',
+        endpoint: '/appointments',
+        action: 'create_payload',
+        sourceSystem: payload.sourceSystem,
+        studentId: payload.studentId,
+        fechaHora: payload.fechaHora,
+        asunto: payload.asunto,
+      }));
 
       const created = await sicopAppointmentsClient.createAppointment(payload);
       return ensureCitaShape(mapSicopAppointmentToSofiaCita(created) as Record<string, any>);
@@ -258,15 +288,21 @@ export const citaService = {
     try {
       const payload: Record<string, unknown> = {};
       if (data.fecha !== undefined || data.hora !== undefined) {
-        const fechaBase = data.fecha ?? new Date().toISOString();
-        const horaBase = data.hora ?? '09:00';
-        payload.fecha = buildDateTimeIso(fechaBase, horaBase);
+        const existing = await this.getById(id);
+        if (!existing) {
+          throw new CitaServiceError('NOT_FOUND', 'Cita no encontrada en SICOP.');
+        }
+
+        const fechaBase = data.fecha ?? String(existing.fecha || '');
+        const horaBase = data.hora ?? String(existing.hora || '09:00');
+        payload.fechaHora = buildDateTimeIso(fechaBase, horaBase);
         payload.hora = normalizeHora(horaBase);
+        payload.asunto = String(existing.motivo || 'Cita SOFIA');
       }
 
       if (data.modalidad !== undefined) payload.modalidad = String(data.modalidad).toUpperCase();
       if (data.motivo !== undefined) payload.motivo = data.motivo;
-      if (data.estado !== undefined) payload.estado = normalizeEstadoInput(data.estado);
+      if (data.estado !== undefined) payload.estado = toSicopStatus(data.estado);
       if (data.estudianteId !== undefined) payload.estudianteId = data.estudianteId;
       if (data.usuarioNombre !== undefined) payload.usuarioNombre = data.usuarioNombre;
       if (data.usuarioTipoDocumento !== undefined) payload.usuarioTipoDocumento = data.usuarioTipoDocumento;
@@ -311,22 +347,14 @@ export const citaService = {
   },
 
   async getStats() {
-    const citas = await this.getAll({ sourceSystem: 'SOFIA' });
-    const total = citas.length;
-    const agendadas = citas.filter((cita) => String(cita.estado).toUpperCase() === 'AGENDADA').length;
-    const canceladas = citas.filter((cita) => String(cita.estado).toUpperCase() === 'CANCELADA').length;
-    const completadas = citas.filter((cita) => String(cita.estado).toUpperCase() === 'COMPLETIDA').length;
-    const presencial = citas.filter((cita) => String(cita.modalidad).toUpperCase() === 'PRESENCIAL').length;
-    const virtual = citas.filter((cita) => String(cita.modalidad).toUpperCase() === 'VIRTUAL').length;
-
-    return {
-      total,
-      agendadas,
-      canceladas,
-      completadas,
-      presencial,
-      virtual,
-    };
+    try {
+      return await sicopAppointmentsClient.getAppointmentsStats({ sourceSystem: 'SOFIA' });
+    } catch (error) {
+      if (error instanceof SicopIntegrationError) {
+        throw mapSicopError(error);
+      }
+      throw error;
+    }
   },
 
   isServiceError(error: unknown): error is CitaServiceError {

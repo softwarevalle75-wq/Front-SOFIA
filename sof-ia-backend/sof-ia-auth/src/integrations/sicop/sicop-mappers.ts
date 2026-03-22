@@ -30,6 +30,13 @@ function normalizeCitaEstado(value: unknown): 'AGENDADA' | 'CANCELADA' | 'COMPLE
   return 'AGENDADA';
 }
 
+function toSicopAppointmentStatus(value: unknown): 'PENDIENTE' | 'CANCELADA' | 'COMPLETADA' {
+  const raw = String(value || 'AGENDADA').trim().toUpperCase();
+  if (raw === 'CANCELADA' || raw === 'CANCELLED' || raw === 'CANCELED') return 'CANCELADA';
+  if (raw === 'COMPLETADA' || raw === 'COMPLETIDA' || raw === 'COMPLETED' || raw === 'DONE') return 'COMPLETADA';
+  return 'PENDIENTE';
+}
+
 function extractDateAndHour(raw: SicopAppointment): { fecha: string; hora: string } {
   const rawHora = String(
     raw.hora ||
@@ -113,17 +120,22 @@ export function mapSicopUserToSofiaStudent(raw: SicopUser): Record<string, unkno
 }
 
 export function mapSofiaStudentInputToSicopPayload(raw: Record<string, unknown>): Record<string, unknown> {
+  const documento = toStringOrNull(raw.documento) || toStringOrNull(raw.document) || `sofia-${Date.now()}`;
   const correo = toStringOrNull(raw.correo);
+  const fallbackEmail = `${String(documento).replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}@sofia.local`;
+
   return {
     name: toStringOrNull(raw.nombre) || 'Estudiante SOFIA',
     fullName: toStringOrNull(raw.nombre) || 'Estudiante SOFIA',
-    email: correo,
+    email: correo || fallbackEmail,
     phone: toStringOrNull(raw.telefono),
     area: toStringOrNull(raw.programa),
     modality: String(raw.modalidad || 'PRESENCIAL').toUpperCase(),
     status: String(raw.estado || 'ACTIVO').toUpperCase(),
     role: 'estudiante',
-    document: toStringOrNull(raw.documento),
+    document: documento,
+    sourceSystem: 'SOFIA',
+    externalRef: String(documento),
     metadata: {
       sourceSystem: 'SOFIA',
       estadoCuenta: toStringOrNull(raw.estadoCuenta),
@@ -135,17 +147,24 @@ export function mapSofiaStudentInputToSicopPayload(raw: Record<string, unknown>)
 }
 
 export function mapSofiaCitaToSicopPayload(raw: Record<string, unknown>): Record<string, unknown> {
+  const fechaHora = toStringOrNull(raw.fechaHora || raw.fecha || raw.date);
+  const asunto = toStringOrNull(raw.asunto) || toStringOrNull(raw.motivo) || 'Cita SOFIA';
+  const status = toSicopAppointmentStatus(raw.estado || raw.status);
+
   return {
-    fecha: raw.fecha,
-    date: raw.fecha,
+    fecha: fechaHora,
+    date: fechaHora,
+    fechaHora,
     hora: toStringOrNull(raw.hora),
     time: toStringOrNull(raw.hora),
+    asunto,
+    subject: asunto,
     modalidad: String(raw.modalidad || 'PRESENCIAL').toUpperCase(),
     mode: String(raw.modalidad || 'PRESENCIAL').toUpperCase(),
     motivo: toStringOrNull(raw.motivo),
     reason: toStringOrNull(raw.motivo),
-    estado: String(raw.estado || 'AGENDADA').toUpperCase(),
-    status: String(raw.estado || 'AGENDADA').toUpperCase(),
+    estado: status,
+    status,
     estudianteId: toStringOrNull(raw.estudianteId),
     studentId: toStringOrNull(raw.estudianteId),
     usuarioNombre: toStringOrNull(raw.usuarioNombre),

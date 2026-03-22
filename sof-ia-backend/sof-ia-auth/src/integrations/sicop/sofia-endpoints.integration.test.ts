@@ -70,7 +70,7 @@ describe('SOFIA endpoint integration via SICOP', () => {
             id: 'admin-1',
             fullName: 'Admin SOFIA',
             email: body.email,
-            role: 'administrativo',
+            role: 'estudiante',
           },
         });
       }
@@ -86,7 +86,7 @@ describe('SOFIA endpoint integration via SICOP', () => {
             id: 'admin-1',
             fullName: 'Admin SOFIA',
             email: 'admin@sofia.test',
-            role: 'administrativo',
+            role: 'estudiante',
           },
         });
       }
@@ -120,6 +120,12 @@ describe('SOFIA endpoint integration via SICOP', () => {
 
       if (parsedUrl.pathname === '/appointments' && method === 'POST') {
         const body = JSON.parse(String(init?.body || '{}'));
+        if (!body.studentId || !body.fechaHora || !body.asunto) {
+          return jsonResponse(400, {
+            error: 'studentId, fechaHora y asunto son obligatorios',
+          });
+        }
+
         const created = {
           id: 'apt-2',
           studentId: body.studentId || body.estudianteId || 'stu-1',
@@ -180,7 +186,7 @@ describe('SOFIA endpoint integration via SICOP', () => {
     expect(loginRes.status).toBe(200);
     expect(loginRes.body.success).toBe(true);
     expect(typeof loginRes.body.token).toBe('string');
-    expect(loginRes.body.user.rol).toBe('ADMIN_CONSULTORIO');
+    expect(loginRes.body.user.rol).toBe('ESTUDIANTE');
 
     const bearer = `Bearer ${loginRes.body.token}`;
 
@@ -214,6 +220,7 @@ describe('SOFIA endpoint integration via SICOP', () => {
     expect(createCitaRes.status).toBe(201);
     expect(createCitaRes.body.success).toBe(true);
     expect(createCitaRes.body.data.id).toBe('apt-2');
+    expect(createCitaRes.body.data.estudianteId).toBe('admin-1');
 
     const updateCitaRes = await request(app)
       .put('/api/citas/apt-2')

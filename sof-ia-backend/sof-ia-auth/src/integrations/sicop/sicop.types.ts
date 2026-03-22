@@ -82,6 +82,16 @@ export interface SicopAppointmentFilters {
   from?: string;
   to?: string;
   updatedSince?: string;
+  fetchAllPages?: boolean;
+}
+
+export interface SicopAppointmentsStats {
+  total: number;
+  agendadas: number;
+  canceladas: number;
+  completadas: number;
+  presencial: number;
+  virtual: number;
 }
 
 export class SicopIntegrationError extends Error {
