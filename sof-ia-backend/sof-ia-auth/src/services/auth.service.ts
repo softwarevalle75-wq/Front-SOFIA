@@ -19,13 +19,13 @@ export interface AuthResult {
 }
 
 function buildAuthErrorMessage(error: SicopIntegrationError): string {
-  if (error.statusCode === 401 || error.statusCode === 403) {
+  if (error.statusCode === 401 || error.statusCode === 403 || error.statusCode === 423) {
     return 'Credenciales inválidas';
   }
   if (error.statusCode === 408 || error.code === 'SICOP_NETWORK_ERROR') {
-    return 'No fue posible conectar con SICOP';
+    return 'Credenciales inválidas';
   }
-  return 'No fue posible autenticar con SICOP';
+  return 'Credenciales inválidas';
 }
 
 function normalizeEmail(correo: string): string {
