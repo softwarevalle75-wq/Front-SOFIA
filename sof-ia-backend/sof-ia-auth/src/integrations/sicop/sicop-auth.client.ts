@@ -166,21 +166,50 @@ export class SicopAuthClient {
     });
   }
 
+  private async requestLoginWithOptionalScope(payload: {
+    email: string;
+    password: string;
+    scope: 'sicop' | 'sofia';
+  }): Promise<SicopHttpResponse<SicopLoginResponse>> {
+    try {
+      return await this.runRequest<SicopLoginResponse>({
+        endpoint: '/auth/login',
+        init: {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        },
+        retryAttempts: config.sicop.retryAttempts,
+      });
+    } catch (error) {
+      if (
+        error instanceof SicopIntegrationError
+        && error.statusCode === 400
+        && /scope\s+.*not allowed/i.test(String(error.message || ''))
+      ) {
+        return this.runRequest<SicopLoginResponse>({
+          endpoint: '/auth/login',
+          init: {
+            method: 'POST',
+            body: JSON.stringify({
+              email: payload.email,
+              password: payload.password,
+            }),
+          },
+          retryAttempts: config.sicop.retryAttempts,
+        });
+      }
+      throw error;
+    }
+  }
+
   private async login(): Promise<string> {
     if (this.loginInFlight) return this.loginInFlight;
 
     this.loginInFlight = (async () => {
-      const response = await this.runRequest<SicopLoginResponse>({
-        endpoint: '/auth/login',
-        init: {
-          method: 'POST',
-          body: JSON.stringify({
-            email: config.sicop.integrationEmail,
-            password: config.sicop.integrationPassword,
-            scope: 'sicop',
-          }),
-        },
-        retryAttempts: config.sicop.retryAttempts,
+      const response = await this.requestLoginWithOptionalScope({
+        email: config.sicop.integrationEmail,
+        password: config.sicop.integrationPassword,
+        scope: 'sicop',
       });
 
       if (!response.data?.token) {
@@ -242,13 +271,10 @@ export class SicopAuthClient {
   }
 
   async loginUser(correo: string, password: string): Promise<SicopHttpResponse<SicopLoginResponse>> {
-    return this.request<SicopLoginResponse>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({
-        email: correo,
-        password,
-        scope: 'sofia',
-      }),
+    return this.requestLoginWithOptionalScope({
+      email: correo,
+      password,
+      scope: 'sofia',
     });
   }
 
