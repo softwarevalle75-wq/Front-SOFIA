@@ -8,8 +8,6 @@ RUN npm install
 
 COPY sof-ia-backend/sof-ia-auth ./
 
-RUN npx prisma generate --schema prisma/schema.prisma
-
 RUN npm run build
 
 EXPOSE 3001
