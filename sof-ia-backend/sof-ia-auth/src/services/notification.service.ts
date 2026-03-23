@@ -1,6 +1,21 @@
 import { createHash } from 'crypto';
-import { Cita, Estudiante } from '@prisma/client';
 import { googleGmailService } from './google-gmail.service';
+
+type EstudianteInfo = {
+  nombre: string;
+  documento?: string;
+  correo?: string;
+};
+
+type CitaInfo = {
+  id?: string;
+  fecha: Date | string;
+  hora: string;
+  modalidad: string;
+  motivo?: string;
+  enlaceReunion?: string;
+  estudiante: EstudianteInfo;
+};
 
 export interface DatosUsuario {
   nombre: string;
@@ -11,7 +26,7 @@ export interface DatosUsuario {
 }
 
 export interface NotificacionData {
-  cita: Cita & { estudiante: Estudiante };
+  cita: CitaInfo;
   datosUsuario: DatosUsuario;
   adminCorreo: string;
   resumenConversacion?: string;
@@ -34,10 +49,10 @@ function getFixedJitsiPassword(): string {
   return String(process.env.JITSI_FIXED_PASSWORD || '').trim();
 }
 
-function buildJitsiMeetingDetails(input: { cita: Cita; fecha?: Date | string; hora?: string }): { link: string; password: string } {
+function buildJitsiMeetingDetails(input: { cita: CitaInfo; fecha?: Date | string; hora?: string }): { link: string; password: string } {
   const fechaIso = new Date(input.fecha || input.cita.fecha).toISOString();
   const hora = String(input.hora || input.cita.hora || '').trim();
-  const source = `${input.cita.id}|${fechaIso}|${hora}|${getJitsiPasswordSecret()}`;
+  const source = `${input.cita.id || 'sofia-cita'}|${fechaIso}|${hora}|${getJitsiPasswordSecret()}`;
 
   const hash = createHash('sha256').update(source).digest('hex');
   const roomName = `${getJitsiRoomPrefix()}-${hash.slice(0, 20)}`;
@@ -125,7 +140,7 @@ export const notificationService = {
     console.log('✅ Notificaciones enviadas exitosamente');
   },
 
-  generarContenidoNotificacion(cita: Cita & { estudiante: Estudiante }, datosUsuario: DatosUsuario, resumenConversacion?: string) {
+  generarContenidoNotificacion(cita: CitaInfo, datosUsuario: DatosUsuario, resumenConversacion?: string) {
     const fechaFormateada = new Date(cita.fecha).toLocaleDateString('es-CO', {
       weekday: 'long',
       year: 'numeric',

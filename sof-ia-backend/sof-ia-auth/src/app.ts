@@ -8,8 +8,6 @@ import historialRoutes from './routes/historial.routes';
 import conversacionRoutes from './routes/conversacion.routes';
 import encuestaRoutes from './routes/encuesta.routes';
 import statsRoutes from './routes/stats.routes';
-import webhookRoutes from './routes/webhook.routes';
-import configRoutes from './routes/config.routes';
 import notificacionRoutes from './routes/notificacion.routes';
 
 const app: Express = express();
@@ -30,8 +28,6 @@ app.use('/api/historial', historialRoutes);
 app.use('/api/conversaciones', conversacionRoutes);
 app.use('/api/encuestas', encuestaRoutes);
 app.use('/api/stats', statsRoutes);
-app.use('/api/webhook', webhookRoutes);
-app.use('/api/config', configRoutes);
 app.use('/api/notificaciones', notificacionRoutes);
 
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

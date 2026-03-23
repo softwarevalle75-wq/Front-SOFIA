@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-type SourceMode = 'prisma' | 'sicop' | 'dual';
+type SourceMode = 'sicop' | 'dual';
 
 function parseNumber(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value || '', 10);
@@ -19,7 +19,7 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
 
 function parseSourceMode(value: string | undefined, fallback: SourceMode): SourceMode {
   const normalized = String(value || '').trim().toLowerCase();
-  if (normalized === 'prisma' || normalized === 'sicop' || normalized === 'dual') {
+  if (normalized === 'sicop' || normalized === 'dual') {
     return normalized;
   }
   return fallback;
@@ -34,9 +34,6 @@ function requireEnv(name: string): string {
 }
 
 export const config = {
-  database: {
-    url: process.env.DATABASE_URL || '',
-  },
   jwt: {
     secret: process.env.JWT_SECRET || 'default-secret',
     expiresIn: process.env.JWT_EXPIRES_IN || '24h', // Token dura 24h, la sesión controla la expiración real
@@ -68,14 +65,12 @@ export const config = {
       history: parseSourceMode(process.env.HISTORY_SOURCE_MODE, 'sicop'),
       conversations: parseSourceMode(process.env.CONVERSATIONS_SOURCE_MODE, 'sicop'),
       surveys: parseSourceMode(process.env.SURVEYS_SOURCE_MODE, 'sicop'),
-      webhookConfig: parseSourceMode(process.env.WEBHOOK_CONFIG_SOURCE_MODE, 'prisma'),
     },
     writeLocal: {
       notifications: parseBoolean(process.env.NOTIFICATIONS_WRITE_LOCAL_ENABLED, false),
       history: parseBoolean(process.env.HISTORY_WRITE_LOCAL_ENABLED, false),
       conversations: parseBoolean(process.env.CONVERSATIONS_WRITE_LOCAL_ENABLED, false),
       surveys: parseBoolean(process.env.SURVEYS_WRITE_LOCAL_ENABLED, false),
-      webhookConfig: parseBoolean(process.env.WEBHOOK_CONFIG_WRITE_LOCAL_ENABLED, true),
     },
   },
 };
