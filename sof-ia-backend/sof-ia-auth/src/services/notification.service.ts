@@ -1,5 +1,19 @@
-import { Cita, Estudiante } from '@prisma/client';
 import { googleGmailService } from './google-gmail.service';
+
+type EstudianteInfo = {
+  nombre: string;
+  documento?: string;
+  correo?: string;
+};
+
+type CitaInfo = {
+  fecha: Date | string;
+  hora: string;
+  modalidad: string;
+  motivo?: string;
+  enlaceReunion?: string;
+  estudiante: EstudianteInfo;
+};
 
 export interface DatosUsuario {
   nombre: string;
@@ -10,13 +24,13 @@ export interface DatosUsuario {
 }
 
 export interface NotificacionData {
-  cita: Cita & { estudiante: Estudiante };
+  cita: CitaInfo;
   datosUsuario: DatosUsuario;
   adminCorreo: string;
   resumenConversacion?: string;
 }
 
-function resolveMeetLink(cita: Cita): string {
+function resolveMeetLink(cita: CitaInfo): string {
   return String(cita.enlaceReunion || '').trim();
 }
 
@@ -91,7 +105,7 @@ export const notificationService = {
     console.log('✅ Notificaciones enviadas exitosamente');
   },
 
-  generarContenidoNotificacion(cita: Cita & { estudiante: Estudiante }, datosUsuario: DatosUsuario, resumenConversacion?: string) {
+  generarContenidoNotificacion(cita: CitaInfo, datosUsuario: DatosUsuario, resumenConversacion?: string) {
     const fechaFormateada = new Date(cita.fecha).toLocaleDateString('es-CO', {
       weekday: 'long',
       year: 'numeric',
