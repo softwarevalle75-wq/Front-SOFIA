@@ -34,7 +34,21 @@ function rotateExternalUserId(): string {
 }
 
 class WebchatService {
-  private readonly microserviceEndpoint = `${String(import.meta.env.VITE_CHATBOT_WEB_API_URL || 'http://localhost:3060').trim().replace(/\/$/, '')}/v1/chatbot/web/message`;
+  private readonly microserviceEndpoint = this.resolveEndpoint();
+
+  private resolveEndpoint(): string {
+    const mode = String(import.meta.env.VITE_CHATBOT_BACKEND_MODE || 'sicop_proxy').trim().toLowerCase();
+    const apiBase = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
+    const legacyBase = String(import.meta.env.VITE_CHATBOT_WEB_API_URL || '').trim().replace(/\/$/, '');
+    const apiLooksLikeSofiaAuth = /\/api$/i.test(apiBase) || /sofia-auth/i.test(apiBase);
+
+    if (mode !== 'legacy' && apiBase && apiLooksLikeSofiaAuth) {
+      return `${apiBase}/conversaciones/webchat/message`;
+    }
+
+    const fallbackBase = legacyBase || 'http://localhost:3060';
+    return `${fallbackBase}/v1/chatbot/web/message`;
+  }
 
   async sendMessage(input: { text: string; displayName?: string }): Promise<string[]> {
     const payloadBody = {
@@ -72,7 +86,21 @@ class WebchatService {
       throw new Error(payload?.message || fallbackMessage);
     }
 
-    return payload.data?.botMessages || [];
+    const directMessages = Array.isArray(payload.data?.botMessages)
+      ? payload.data.botMessages.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
+
+    if (directMessages.length > 0) {
+      return directMessages;
+    }
+
+    const responseMessages = Array.isArray(payload.data?.responses)
+      ? payload.data.responses
+          .map((item) => String(item?.text || '').trim())
+          .filter((item) => item.length > 0)
+      : [];
+
+    return responseMessages;
   }
 
   restartSession() {
