@@ -1,4 +1,4 @@
-// Configuración de la API para conectar con el backend (Express + Prisma)
+// Configuración de la API para conectar con SOFIA-AUTH
 
 export const API_CONFIG = {
   // URL base del backend - pointing to gateway

@@ -1,28 +1,10 @@
 services:
-  postgres_auth:
-    image: postgres:16-alpine
-    container_name: sofia_postgres_auth
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: sofia_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_auth_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   sofia_auth:
     build:
       context: ./sof-ia-auth
       dockerfile: Dockerfile
     container_name: sofia_auth
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres_auth:5432/sofia_db?schema=auth_service
       JWT_SECRET: ${JWT_SECRET:-dev-secret-key-change-in-production}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-30m}
       PORT: 3001
@@ -42,17 +24,6 @@ services:
       SMTP_FROM: "\"Consultorio Jurídico SOF-IA\" <sebastianriascos892@gmail.com>"
     ports:
       - "3001:3001"
-    depends_on:
-      postgres_auth:
-        condition: service_healthy
-    volumes:
-      - ./sof-ia-auth/prisma/seed.ts:/app/prisma/seed.ts:ro
-    command: >
-      sh -c "
-        npx prisma db push --accept-data-loss &&
-        npx ts-node prisma/seed.ts &&
-        npm start
-      "
     restart: unless-stopped
 
   sofia_gateway:
@@ -68,6 +39,3 @@ services:
     depends_on:
       - sofia_auth
     restart: unless-stopped
-
-volumes:
-  postgres_auth_data:

@@ -27,7 +27,7 @@ export const studentService = {
   },
 
   async createStudent(studentData: Omit<Student, 'id' | 'fechaCreacion'>): Promise<Student> {
-    // Convertir modalidad y estado a mayúsculas para el enum de Prisma
+    // Convertir modalidad y estado a mayúsculas para el backend
     const dataToSend = {
       ...studentData,
       modalidad: studentData.modalidad?.toUpperCase() || 'PRESENCIAL',

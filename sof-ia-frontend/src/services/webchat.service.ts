@@ -39,15 +39,16 @@ class WebchatService {
   private resolveEndpoint(): string {
     const mode = String(import.meta.env.VITE_CHATBOT_BACKEND_MODE || 'sicop_proxy').trim().toLowerCase();
     const apiBase = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
-    const legacyBase = String(import.meta.env.VITE_CHATBOT_WEB_API_URL || '').trim().replace(/\/$/, '');
-    const apiLooksLikeSofiaAuth = /\/api$/i.test(apiBase) || /sofia-auth/i.test(apiBase);
 
-    if (mode !== 'legacy' && apiBase && apiLooksLikeSofiaAuth) {
-      return `${apiBase}/conversaciones/webchat/message`;
+    if (mode === 'legacy') {
+      console.warn('VITE_CHATBOT_BACKEND_MODE=legacy ya no es soportado. Se usara sicop_proxy.');
     }
 
-    const fallbackBase = legacyBase || 'http://localhost:3060';
-    return `${fallbackBase}/v1/chatbot/web/message`;
+    if (!apiBase) {
+      throw new Error('VITE_API_URL es requerido para usar el webchat de SOFIA.');
+    }
+
+    return `${apiBase}/conversaciones/webchat/message`;
   }
 
   async sendMessage(input: { text: string; displayName?: string }): Promise<string[]> {
@@ -68,7 +69,7 @@ class WebchatService {
         body: JSON.stringify(payloadBody),
       });
     } catch {
-      throw new Error('No fue posible conectar con el servicio del chatbot. Revisa la configuracion de VITE_CHATBOT_WEB_API_URL.');
+      throw new Error('No fue posible conectar con el servicio del chatbot. Revisa la configuracion de VITE_API_URL.');
     }
 
     let payload: WebchatSendMessageResponse | null = null;

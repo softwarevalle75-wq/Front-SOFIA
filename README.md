@@ -76,8 +76,8 @@
 |------------|---------|-----------|
 | Express | 4.18.2 | Framework web |
 | TypeScript | 5.3.3 | Tipado estático |
-| Prisma | 5.10.0 | ORM |
-| PostgreSQL | 16 | Base de datos |
+| Integración SICOP | - | Fuente de datos y autenticación |
+| Fetch API | Node 20 | Cliente HTTP entre servicios |
 | JWT | 9.0.2 | Autenticación |
 | bcryptjs | 2.4.3 | Hash de contraseñas |
 | Zod | 3.22.4 | Validación de datos |
@@ -120,14 +120,11 @@
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    PostgreSQL                                │
-│                   Puerto: 5432                               │
+│                 SICOP (Servicios + DB central)              │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │  • Usuarios, sesiones, intentos de login             │   │
-│  │  • Estudiantes, citas, asesoramientos                │   │
-│  │  • Conversaciones, mensajes                          │   │
-│  │  • Encuestas, métricas, notificaciones               │   │
-│  │  • Configuración WhatsApp, webhooks                  │   │
+│  │  • Auth/users por scope SOFIA                        │   │
+│  │  • Estudiantes, citas, conversaciones, encuestas     │   │
+│  │  • Historial y notificaciones                         │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -158,17 +155,17 @@
 - ✅ Enlaces de reunión virtual
 
 ### 💬 Integración con Chatbot
-- ✅ Conversaciones de WhatsApp
+- ✅ Conversaciones de webchat
 - ✅ Historial de mensajes
 - ✅ Asesoramientos jurídicos
 - ✅ Temas legales categorizados
-- ✅ Configuración de webhook
+- ✅ Proxy SOFIA-AUTH hacia SICOP
 
 ### 📊 Encuestas de Satisfacción
 - ✅ Calificación 1-5 estrellas
 - ✅ Comentarios opcionales
 - ✅ Métricas de satisfacción
-- ✅ Fuente: WhatsApp/Web
+- ✅ Fuente: SOFIA Webchat
 
 ### 🔔 Notificaciones
 - ✅ Notificaciones en tiempo real
@@ -234,27 +231,22 @@ Front-Sof-IA/
 │   │   │   ├── controllers/      # Controladores
 │   │   │   │   ├── auth.controller.ts
 │   │   │   │   ├── cita.controller.ts
-│   │   │   │   ├── config-whatsapp.controller.ts
 │   │   │   │   ├── conversacion.controller.ts
 │   │   │   │   ├── encuesta.controller.ts
 │   │   │   │   ├── estudiante.controller.ts
 │   │   │   │   ├── historial.controller.ts
 │   │   │   │   ├── notificacion.controller.ts
-│   │   │   │   ├── stats.controller.ts
-│   │   │   │   └── webhook.controller.ts
+│   │   │   │   └── stats.controller.ts
 │   │   │   ├── dto/              # Objetos de transferencia
 │   │   │   ├── middlewares/      # Middlewares
 │   │   │   ├── routes/           # Rutas de API
 │   │   │   ├── services/         # Lógica de negocio
 │   │   │   └── utils/            # Utilidades
-│   │   ├── prisma/
-│   │   │   ├── schema.prisma     # Esquema de base de datos
-│   │   │   └── seed.ts           # Datos de prueba
 │   │   ├── package.json
 │   │   └── Dockerfile
 │   │
 │   ├── docker-compose.yml        # Orquestación Docker
-│   └── prisma.config.ts
+│   └── package.json
 │
 ├── package.json
 └── README.md
@@ -264,82 +256,11 @@ Front-Sof-IA/
 
 ## 🗄️ Base de Datos
 
-### Modelo Entidad-Relación
+Front-SOFIA ya no mantiene una base de datos propia para el servicio `sof-ia-auth`.
 
-El esquema de PostgreSQL incluye las siguientes entidades principales:
-
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Usuario    │     │   Estudiante │     │     Cita     │
-├──────────────┤     ├──────────────┤     ├──────────────┤
-│ id           │     │ id           │     │ id           │
-│ nombre       │     │ documento    │     │ estudianteId │◄────┐
-│ correo       │     │ nombre       │     │ fecha        │     │
-│ passwordHash │     │ programa     │     │ hora         │     │
-│ rol          │     │ semestre     │     │ modalidad    │     │
-│ estado       │     │ estado       │     │ estado       │     │
-└──────────────┘     └──────────────┘     └──────────────┘     │
-       │                    │                    │              │
-       │                    │                    │              │
-       ▼                    ▼                    ▼              │
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     │
-│  Intento     │     │Conversacion  │────►│  Mensaje     │     │
-│    Login     │     ├──────────────┤     ├──────────────┤     │
-└──────────────┘     │ estudianteId │     │conversacionId│     │
-                     │ temaLegal    │     │ tipo         │     │
-                     │ estado       │     │ contenido    │     │
-                     └──────────────┘     └──────────────┘     │
-                            │                                   │
-                            │                                   │
-                            ▼                                   │
-                     ┌──────────────┐                          │
-                     │Asesoramiento │                          │
-                     ├──────────────┤                          │
-                     │conversacionId│                          │
-                     │estudianteId  │                          │
-                     │duracion      │                          │
-                     └──────────────┘                          │
-                            │                                   │
-                            ▼                                   │
-                     ┌──────────────┐                          │
-                     │  Encuesta    │                          │
-                     ├──────────────┤                          │
-                     │conversacionId│                          │
-                     │calificacion  │                          │
-                     │comentario    │                          │
-                     └──────────────┘                          │
-                                                               │
-┌──────────────┐     ┌──────────────┐                         │
-│  Sesion      │     │ Notificacion │                         │
-├──────────────┤     ├──────────────┤                         │
-│ id           │     │ id           │                         │
-│ usuarioId    │     │ estudianteId │─────────────────────────┘
-│ token        │     │ tipo         │
-│ expiresAt    │     │ titulo       │
-│ activa       │     │ mensaje      │
-└──────────────┘     │ prioridad    │
-                     └──────────────┘
-```
-
-### Tablas Principales
-
-| Tabla | Descripción |
-|-------|-------------|
-| `usuarios` | Usuarios del sistema (admin, estudiantes) |
-| `sesiones` | Sesiones activas con tokens JWT |
-| `intentos_login` | Registro de intentos de autenticación |
-| `estudiantes` | Información de estudiantes |
-| `citas` | Citas agendadas |
-| `conversaciones` | Conversaciones del chatbot |
-| `mensajes` | Mensajes de conversaciones |
-| `asesoramientos` | Asesoramientos jurídicos realizados |
-| `encuestas_satisfaccion` | Encuestas de satisfacción |
-| `notificaciones` | Notificaciones del sistema |
-| `auditoria` | Registro de auditoría de acciones |
-| `metricas_mensuales` | Métricas agregadas por mes |
-| `configuracion_whatsapp` | Configuración de WhatsApp Business API |
-| `webhook_logs` | Logs de webhooks recibidos |
-| `plantillas_mensaje` | Plantillas de mensajes predefinidos |
+- `sof-ia-auth` consume datos de SICOP vía integración (`SICOP_GATEWAY_URL`).
+- Conversaciones, notificaciones, historial, encuestas y estadísticas se resuelven contra endpoints SOFIA en SICOP.
+- El stack legacy (`chatbot-web`, `orchestrator`, `conversation-service` y Postgres dedicado) está deprecado.
 
 ---
 
@@ -351,16 +272,13 @@ El esquema de PostgreSQL incluye las siguientes entidades principales:
 # URL del backend (API Gateway)
 VITE_API_URL=http://localhost:3000/api
 
-# URL del chatbot de WhatsApp (opcional)
-VITE_CHATBOT_URL=https://web.whatsapp.com
+# Webchat por proxy SOFIA -> SICOP
+VITE_CHATBOT_BACKEND_MODE=sicop_proxy
 ```
 
 ### Backend - Servicio Auth (`.env`)
 
 ```bash
-# Base de datos
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sofia_auth
-
 # JWT
 JWT_SECRET=dev-secret-key-change-in-production
 JWT_EXPIRES_IN=30m
@@ -387,6 +305,13 @@ SMTP_SECURE=false
 SMTP_USER=tu_correo@gmail.com
 SMTP_PASS=tu_contraseña_app
 SMTP_FROM="Consultorio Jurídico SOF-IA" <tu_correo@gmail.com>
+
+# Integración SICOP
+SICOP_GATEWAY_URL=https://gateway-production-844d.up.railway.app
+SICOP_INTEGRATION_EMAIL=admin.sicop@universidad.edu.co
+SICOP_INTEGRATION_PASSWORD=********
+SICOP_TIMEOUT_MS=10000
+SICOP_RETRY_ATTEMPTS=1
 ```
 
 ### Backend - API Gateway (`.env`)
@@ -405,11 +330,10 @@ AUTH_SERVICE_URL=http://localhost:3001
 
 ### Servicios Docker
 
-El `docker-compose.yml` define 3 servicios:
+El `docker-compose.yml` define 2 servicios:
 
 | Servicio | Contenedor | Puerto | Descripción |
 |----------|------------|--------|-------------|
-| `postgres_auth` | `sofia_postgres_auth` | 5432 | Base de datos PostgreSQL 16 |
 | `sofia_auth` | `sofia_auth` | 3001 | Servicio de autenticación |
 | `sofia_gateway` | `sofia_gateway` | 3000 | API Gateway |
 
@@ -441,27 +365,10 @@ docker-compose restart sofia_auth
 docker-compose down -v
 ```
 
-### Migraciones y Seed
+### Inicialización
 
-Las migraciones y el seed se ejecutan automáticamente al iniciar el contenedor `sofia_auth`. El comando configurado es:
-
-```bash
-npx prisma db push --accept-data-loss && npx ts-node prisma/seed.ts && npm start
-```
-
-Para ejecutar manualmente:
-
-```bash
-# Dentro del contenedor
-docker-compose exec sofia_auth npx prisma migrate deploy
-docker-compose exec sofia_auth npx prisma db seed
-
-# O localmente (si tienes Prisma instalado)
-cd sof-ia-backend/sof-ia-auth
-npx prisma generate
-npx prisma migrate dev
-npx prisma db seed
-```
+`sofia_auth` ya no ejecuta migraciones Prisma ni seed de base de datos local.
+La inicialización depende de variables de integración SICOP y configuración SMTP/JWT.
 
 ---
 
@@ -472,7 +379,6 @@ npx prisma db seed
 - Node.js >= 18.x
 - npm >= 9.x
 - Docker y Docker Compose (para despliegue con contenedores)
-- PostgreSQL 16 (para desarrollo local sin Docker)
 
 ### Instalación
 
@@ -551,27 +457,15 @@ npm run build
 # Producción
 npm run start
 
-# Prisma
-npm run prisma:generate   # Generar cliente Prisma
-npm run prisma:migrate    # Ejecutar migraciones
-npm run prisma:push       # Push del esquema (desarrollo)
-npm run seed              # Ejecutar seed de datos
+# Seed no-op (compatibilidad)
+npm run seed
 ```
 
 ### Desarrollo Local (sin Docker)
 
-1. **Iniciar PostgreSQL localmente** (puerto 5432)
+1. **Configurar variables de entorno** en `sof-ia-auth/.env`
 
-2. **Configurar variables de entorno** en `sof-ia-auth/.env`
-
-3. **Ejecutar migraciones**:
-   ```bash
-   cd sof-ia-backend/sof-ia-auth
-   npx prisma migrate dev
-   npx prisma db seed
-   ```
-
-4. **Iniciar servicios**:
+2. **Iniciar servicios**:
    ```bash
    # Terminal 1 - Servicio Auth
    cd sof-ia-backend/sof-ia-auth
@@ -586,7 +480,7 @@ npm run seed              # Ejecutar seed de datos
    npm run dev
    ```
 
-5. **Acceder a la aplicación**: http://localhost:5173
+3. **Acceder a la aplicación**: http://localhost:5173
 
 ---
 
@@ -657,14 +551,6 @@ npm run seed              # Ejecutar seed de datos
 | GET | `/api/stats/mensuales` | Métricas mensuales |
 | GET | `/api/stats/citas` | Estadísticas de citas |
 
-### Webhook
-
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | `/api/webhook/whatsapp` | Webhook de WhatsApp |
-
----
-
 ## 🔒 Seguridad
 
 ### Medidas Implementadas
@@ -696,8 +582,6 @@ npm run seed              # Ejecutar seed de datos
 - [Tailwind CSS Docs](https://tailwindcss.com/docs)
 - [React Router Docs](https://reactrouter.com)
 - [Express.js Docs](https://expressjs.com)
-- [Prisma Docs](https://www.prisma.io/docs)
-- [PostgreSQL Docs](https://www.postgresql.org/docs/)
 - [Docker Docs](https://docs.docker.com)
 
 ---
